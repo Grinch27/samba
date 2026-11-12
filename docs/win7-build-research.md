@@ -16,6 +16,7 @@
 
 | 检查 | 观察 |
 | --- | --- |
+| Linux 原生对照 | 在 Debian 13 x64 上完成同一 Samba 提交的原生配置和构建。`smbclient` 和 `smbd` 均为 x86-64 ELF，两条 `--version` 命令均以退出码 0 输出 `Version 4.25.1` |
 | Win7 工具链探针 | LLVM-MinGW `20261104` 的 MSVCRT 版本在 Debian 13 x64 构建了两个 Windows 控制台 PE。机器类型为 `0x8664`、`0x14C`，OS 和子系统版本字段均为 6.1。直接导入 `KERNEL32.dll`、`msvcrt.dll` 和 `WS2_32.dll`。执行体仅初始化并清理 Winsock |
 | 大文件偏移 | 两个 MinGW 目标的 `off_t` 默认 4 字节，`-D_FILE_OFFSET_BITS=64` 时为 8 字节，仅设置 `-D_LARGE_FILES` 时为 4 字节。Linux x64 对照为 8 字节 |
 | Waf 交叉配置 | 首次 x64 配置缺少运行时回答，停在大文件检测。填入编译时实测的回答后，x64 和 x86 均通过该项，继续到 `HAVE_SECURE_MKSTEMP`。测试程序已链接，回答为 `UNKNOWN`，配置退出码为 1。该项创建两个临时文件并调用 `unlink`，校验文件名唯一性和 `0600` 模式 |
@@ -38,7 +39,7 @@
 
 ## 复现
 
-Actions 工作流在 `ubuntu-24.04` 运行 x64、x86 矩阵，固定 Samba 源码提交与 LLVM-MinGW 发布资产的 SHA-256。每个作业输出 `summary.md`、`pe-headers.txt`、`cross-answers.txt` 和 `winsock-probe.exe`。作业成功表示研究探针记录了预期阶段的结果，Samba Waf 的退出码见摘要。 [工作流](../.github/workflows/win7-research.yml)
+Actions 工作流在 `ubuntu-24.04` 运行 x64、x86 矩阵，固定 Samba 源码提交与 LLVM-MinGW 发布资产的 SHA-256。运行 `43182908502` 的两个作业均完成，分别上传 `summary.md`、`pe-headers.txt`、`cross-answers.txt` 和 `winsock-probe.exe`。两个作业均记录 Waf 退出码 1 和 `HAVE_SECURE_MKSTEMP` 的目标运行时待测状态。 [工作流](../.github/workflows/win7-research.yml) · [运行记录](https://github.com/Grinch27/samba/actions/runs/43182908502)
 
 本地复现需要 Bash、Git、GCC、Python 3、`pkg-config`、`curl`、`tar` 和 SHA-256 校验工具。以下命令在本研究仓库根目录运行。并行运行时，每个架构用独立的 Samba 检出目录。
 
@@ -63,6 +64,25 @@ done
 ```
 
 `configure.log` 保存 Waf 输出，`waf/config.log` 保存详细编译与链接记录。当前 `cross-answers.txt` 的大文件条目来自静态编译结果，`HAVE_SECURE_MKSTEMP` 等依赖 Windows 行为的条目留给目标运行检测。下一轮直接移植应保存目标侧实测结果，包含权限、临时文件原子创建、文件打开时删除及清理行为。Win7 SP1 的具体补丁级别也需记录。
+
+### Linux 原生对照
+
+在同一提交的独立源码检出目录中运行。已验证的环境包括 GCC 14.2.0、Python 3.12.14、GnuTLS 3.8.9、MIT Kerberos 1.21.3、Parse::Yapp 1.21、GNU Bison 3.8.2 和 Flex 2.6.4。禁用 AD DC、SMB1 服务端和可选的搜索集成，构建目标限定为 `smbclient`、`smbd`。
+
+```bash
+set -e
+./configure --without-ad-dc --without-ads --without-ldap --without-pam \
+  --without-gpgme --without-json --without-acl-support --without-libarchive \
+  --without-regedit --without-winexe --without-systemd --without-ldb-lmdb \
+  --disable-python --with-system-mitkrb5 --without-smb1-server \
+  --with-shared-modules='!vfs_snapper' --disable-wsp --disable-spotlight
+PYTHONHASHSEED=1 WAF_MAKE=1 ./buildtools/bin/waf build --targets=client/smbclient,smbd/smbd -j 8
+file -L bin/smbclient bin/smbd
+bin/smbclient --version
+bin/smbd --version
+```
+
+该对照验收到程序启动与版本输出。共享、认证和读写行为留给互操作测试。
 
 ## 下一阶段验收
 
