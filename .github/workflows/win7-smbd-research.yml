@@ -62,11 +62,12 @@ jobs:
           CYGWIN_ROOT: ${{ steps.cygwin.outputs.root }}
         run: |
           $bash = Join-Path $env:CYGWIN_ROOT 'bin/bash.exe'
-          & $bash --noprofile --norc -c '
-            project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
-            results=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-cygwin-probe")
-            exec /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$results"
-          '
+          $command = @'
+          project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
+          results=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-cygwin-probe")
+          exec /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$results"
+          '@
+          & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
           exit $LASTEXITCODE
       - name: Summarize the Cygwin result
         if: always()
