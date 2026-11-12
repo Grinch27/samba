@@ -43,9 +43,10 @@ configure_status=0
   --without-gpgme --without-json --without-acl-support --without-libarchive \
   --without-regedit --without-winexe --without-systemd --without-ldb-lmdb \
   --disable-python --without-smb1-server --with-shared-modules='!vfs_snapper' \
-  --disable-wsp --disable-spotlight \
+  --disable-wsp --disable-spotlight --without-libunwind \
   > "$output/configure.log" 2>&1 || configure_status=$?
 printf -- '- Waf configure exit code: `%d`.\n' "$configure_status" | tee -a "$summary"
+awk '/Checking for (GnuTLS|HAVE_SECURE_MKSTEMP)/ { print }' "$output/configure.log"
 tail -n 36 "$output/configure.log" | tee "$output/configure-tail.txt"
 if (( configure_status != 0 )); then
   exit "$configure_status"
