@@ -1,0 +1,71 @@
+# 待确认的关键需求：Win7 SP1 发布目标及客户端、服务端优先级。
+# 歧义：探针矩阵覆盖 x64 和 x86，正式支持范围待实机验收。
+# 后续研究：引入经过授权的 Win7 虚拟机执行 Waf 运行时检测。
+# 潜在优化：共享经校验的工具链缓存。
+# 风险：托管 Runner 的静态 PE 检查无法确认 Win7 的运行行为。
+# 验证重点：固定源码和工具链，记录每个目标架构的配置结果。
+name: Win7 build research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/win7-research.yml
+      - research/probe-win7.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-configure:
+    name: Samba configure probe (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, i686]
+    steps:
+      - name: Check out research scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out Samba 4.25.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: samba-team/samba
+          ref: 02e8e3f93f4af787bcb3389cbff9e22e74567eb2
+          path: upstream-samba
+          persist-credentials: false
+      - name: Set up verified LLVM-MinGW toolchain
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          archive=llvm-mingw-20261104-msvcrt-ubuntu-22.04-x86_64.tar.xz
+          curl --fail --location --silent --show-error --retry 2 --max-time 180 \
+            --proto '=https' --proto-redir '=https' --output "$archive" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/$archive"
+          printf '%s  %s\n' '6e3342e2e0dfa56e9178f3c34b198f278bd5e603db4a759455d1439cc2230630' "$archive" \
+            | sha256sum --check
+          tar -xJf "$archive"
+      - name: Probe PE and configure Samba
+        shell: bash
+        env:
+          PROBE_TARGET: ${{ matrix.target }}
+        run: |
+          bash research/probe-win7.sh "$PROBE_TARGET" upstream-samba \
+            "$RUNNER_TEMP/llvm-mingw-20261104-msvcrt-ubuntu-22.04-x86_64/bin" \
+            "$RUNNER_TEMP/samba-win7-probe"
+          cat "$RUNNER_TEMP/samba-win7-probe/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload research results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: win7-research-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/samba-win7-probe/summary.md
+            ${{ runner.temp }}/samba-win7-probe/pe-headers.txt
+            ${{ runner.temp }}/samba-win7-probe/cross-answers.txt
+            ${{ runner.temp }}/samba-win7-probe/winsock-probe.exe
+          if-no-files-found: error
+          retention-days: 7
