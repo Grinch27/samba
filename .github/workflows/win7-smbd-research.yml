@@ -1,0 +1,92 @@
+# 待确认的关键需求：Win7 SP1 的目标架构和正式服务端兼容范围。
+# 歧义：Cygwin 的编译可行性与 Win7 上的运行可行性各自需要证据。
+# 后续研究：用经过验证的 Cygwin 3.4.10 依赖集复现构建。
+# 潜在优化：将依赖安装与最小服务端构建用时分开记录。
+# 风险：当前镜像提供的 Cygwin 已结束 Win7 支持。
+# 验证重点：固定 Samba 版本和 Actions 引用，保留失败阶段与环境信息。
+name: Samba smbd Cygwin research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/win7-smbd-research.yml
+      - research/probe-cygwin-smbd.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cygwin-control:
+    name: smbd build on current Cygwin x64
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Preserve LF line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - name: Check out research scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Cygwin build dependencies
+        id: cygwin
+        uses: cygwin/cygwin-install-action@5a1b0cd107181fa6bb6bf3f90d500f4fb3132f18 # v7.0.0
+        with:
+          add-to-path: 'false'
+          packages: |
+            bison
+            diffutils
+            flex
+            gcc-core
+            git
+            libcrypt-devel
+            libgnutls-devel
+            libiconv-devel
+            libintl-devel
+            libpopt-devel
+            libreadline-devel
+            libtasn1-devel
+            libtirpc-devel
+            make
+            perl
+            perl-Parse-Yapp
+            pkg-config
+            python3
+            rpcsvc-proto
+            zlib-devel
+      - name: Configure and build smbd
+        shell: pwsh
+        env:
+          CYGWIN_ROOT: ${{ steps.cygwin.outputs.root }}
+        run: |
+          $bash = Join-Path $env:CYGWIN_ROOT 'bin/bash.exe'
+          & $bash --noprofile --norc -c '
+            project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
+            results=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-cygwin-probe")
+            exec /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$results"
+          '
+          exit $LASTEXITCODE
+      - name: Summarize the Cygwin result
+        if: always()
+        shell: pwsh
+        run: |
+          $summary = Join-Path $env:RUNNER_TEMP 'smbd-cygwin-probe/summary.md'
+          if (Test-Path -LiteralPath $summary) {
+            Get-Content -LiteralPath $summary -Encoding utf8 |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+      - name: Save the build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smbd-cygwin-x64-research
+          path: |
+            ${{ runner.temp }}/smbd-cygwin-probe/summary.md
+            ${{ runner.temp }}/smbd-cygwin-probe/packages.txt
+            ${{ runner.temp }}/smbd-cygwin-probe/configure-tail.txt
+            ${{ runner.temp }}/smbd-cygwin-probe/build-tail.txt
+            ${{ runner.temp }}/smbd-cygwin-probe/smbd-dlls.txt
+          if-no-files-found: warn
+          retention-days: 7
