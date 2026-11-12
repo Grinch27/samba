@@ -11,13 +11,15 @@ if [[ $# != 1 ]]; then
   printf 'Usage: %s <new output directory>\n' "$0" >&2
   exit 2
 fi
-if [[ $(uname -s) != CYGWIN* || $(uname -m) != x86_64 ]]; then
-  printf 'This probe requires an x86_64 Cygwin host.\n' >&2
+export PATH=/usr/bin:/bin
+export LC_ALL=C
+host_system=$(uname -s)
+host_arch=$(uname -m)
+if [[ $host_system != CYGWIN* || $host_arch != x86_64 ]]; then
+  printf 'Expected x86_64 Cygwin, found %s %s.\n' "$host_system" "$host_arch" >&2
   exit 2
 fi
 
-export PATH=/usr/bin:/bin
-export LC_ALL=C
 mkdir -- "$1"
 output=$(realpath -e -- "$1")
 summary="$output/summary.md"
