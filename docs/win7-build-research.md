@@ -1,5 +1,7 @@
 # Samba 4.25.1 的 Windows 7 构建可行性
 
+Win7 上运行独立文件服务器是当前目标，见 [服务端研究与验收条件](win7-smbd-research.md)。
+
 研究日期为 2026-11-12。以 Windows 7 SP1 为候选运行基线，首选 x64，x86 进入独立验证。当前上游基线为 Samba 4.25.1 的提交 `02e8e3f93f4af787bcb3389cbff9e22e74567eb2`，参考构建实现为 Notepad++ 的提交 `066c93ac06e2f8d59c5e5f442e60d8306b603163`。 [Samba 发布说明](https://www.samba.org/samba/history/samba-4.25.1.html) · [Samba 源码](https://github.com/samba-team/samba/tree/02e8e3f93f4af787bcb3389cbff9e22e74567eb2) · [Notepad++ 源码](https://github.com/notepad-plus-plus/notepad-plus-plus/tree/066c93ac06e2f8d59c5e5f442e60d8306b603163)
 
 ## 从 Notepad++ 复用的做法
