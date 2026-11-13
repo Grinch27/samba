@@ -38,25 +38,29 @@ git -c core.autocrlf=false clone --quiet --depth 1 --branch samba-4.25.1 \
 cd "$output/upstream-samba"
 test "$(git rev-parse HEAD)" = "$source_commit"
 
+export PYTHONUNBUFFERED=1
+export WAF_NO_PREFORK=1
+
 configure_status=0
-./configure --without-ad-dc --without-ads --without-ldap --without-pam \
+timeout --kill-after=15s 8m ./configure \
+  --without-ad-dc --without-ads --without-ldap --without-pam \
   --without-gpgme --without-json --without-acl-support --without-libarchive \
   --without-regedit --without-winexe --without-systemd --without-ldb-lmdb \
   --disable-python --without-smb1-server --with-shared-modules='!vfs_snapper' \
   --disable-wsp --disable-spotlight --without-libunwind \
-  > "$output/configure.log" 2>&1 || configure_status=$?
+  2>&1 | tee "$output/configure.log" || configure_status=$?
 printf -- '- Waf configure exit code: `%d`.\n' "$configure_status" | tee -a "$summary"
-awk '/Checking for (GnuTLS|HAVE_SECURE_MKSTEMP)/ { print }' "$output/configure.log"
-tail -n 36 "$output/configure.log" | tee "$output/configure-tail.txt"
+tail -n 36 "$output/configure.log" > "$output/configure-tail.txt"
 if (( configure_status != 0 )); then
   exit "$configure_status"
 fi
 
 build_status=0
-PYTHONHASHSEED=1 WAF_MAKE=1 ./buildtools/bin/waf build --targets=smbd/smbd -j 4 \
-  > "$output/build.log" 2>&1 || build_status=$?
+PYTHONHASHSEED=1 WAF_MAKE=1 timeout --kill-after=15s 16m \
+  ./buildtools/bin/waf build --targets=smbd/smbd -j 4 \
+  2>&1 | tee "$output/build.log" || build_status=$?
 printf -- '- Waf smbd build exit code: `%d`.\n' "$build_status" | tee -a "$summary"
-tail -n 36 "$output/build.log" | tee "$output/build-tail.txt"
+tail -n 36 "$output/build.log" > "$output/build-tail.txt"
 if (( build_status != 0 )); then
   exit "$build_status"
 fi
