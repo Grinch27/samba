@@ -1,0 +1,89 @@
+# 待确认的关键需求：Win7 SP1 上的协议、鉴权与 Windows 服务部署需求。
+# 歧义：Server 2022 可以验证旧 Cygwin ABI 下的行为，目标系统仍需复测。
+# 后续研究：用同一批次的依赖在 Win7 SP1 虚拟机复现。
+# 潜在优化：稳定后复用校验通过的开发包缓存。
+# 风险：基础 IPC 与加密通过无法证明 smbd 可以提供共享。
+# 验证重点：分别记录 GnuTLS、具名 datagram 和 SCM_RIGHTS 的结果。
+name: Cygwin 3.4.10 runtime research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/win7-cygwin-legacy-probe.yml
+      - research/cygwin-legacy/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-runtime:
+    name: Cygwin 3.4.10 on Windows Server 2022
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Preserve LF line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - name: Check out probe source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410a181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned LLVM-MinGW
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: |
+          $archive = 'llvm-mingw-20261104-msvcrt-x86_64.zip'
+          $expected = '6f9c316699759f088de26f5ca0e1df35c1d4e8ee3600f31229821c5717fd0d2b'
+          curl.exe --fail --location --silent --show-error --retry 2 --max-time 180 `
+            --proto '=https' --proto-redir '=https' --output $archive `
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/$archive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expected) {
+            throw 'LLVM-MinGW SHA-256 mismatch'
+          }
+          tar.exe -xf $archive
+          exit $LASTEXITCODE
+      - name: Build probes using the Cygwin 3.4.10 SDK
+        shell: bash
+        run: |
+          work=$(cygpath -u "$RUNNER_TEMP")
+          bash research/cygwin-legacy/build.sh \
+            "$work/llvm-mingw-20261104-msvcrt-x86_64" "$work/cygwin-legacy-probe"
+      - name: Measure the legacy runtime
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $root = Join-Path $env:RUNNER_TEMP 'cygwin-legacy-probe'
+          $runtime = Join-Path $root 'runtime'
+          $report = Join-Path $root 'runtime-results.txt'
+          $oldPath = $env:PATH
+          Push-Location -LiteralPath $runtime
+          try {
+            $env:PATH = "$runtime;$([Environment]::SystemDirectory)"
+            [Environment]::OSVersion.VersionString | Tee-Object -FilePath $report
+            & .\legacy-crypto.exe 2>&1 | Tee-Object -FilePath $report -Append
+            $cryptoStatus = $LASTEXITCODE
+            "GnuTLS probe exit code: $cryptoStatus" | Tee-Object -FilePath $report -Append
+            & .\legacy-datagram.exe datagram 2>&1 | Tee-Object -FilePath $report -Append
+            $datagramStatus = $LASTEXITCODE
+            "Plain datagram probe exit code: $datagramStatus" | Tee-Object -FilePath $report -Append
+            & .\legacy-datagram.exe descriptor 2>&1 | Tee-Object -FilePath $report -Append
+            "SCM_RIGHTS probe exit code: $LASTEXITCODE" | Tee-Object -FilePath $report -Append
+            if ($cryptoStatus -ne 0 -or $datagramStatus -ne 0) { exit 1 }
+          } finally {
+            $env:PATH = $oldPath
+            Pop-Location
+          }
+      - name: Save runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cygwin-3.4.10-runtime-evidence
+          path: |
+            ${{ runner.temp }}/cygwin-legacy-probe/*-pe.txt
+            ${{ runner.temp }}/cygwin-legacy-probe/runtime-results.txt
+          if-no-files-found: warn
+          retention-days: 7
