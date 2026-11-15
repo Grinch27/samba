@@ -56,7 +56,8 @@ if (( configure_status != 0 )); then
 fi
 
 build_status=0
-PYTHONHASHSEED=1 WAF_MAKE=1 timeout --kill-after=15s 16m \
+# 上一轮跑到 2010/2374 个任务后触发了 16 分钟的限制。
+PYTHONHASHSEED=1 WAF_MAKE=1 timeout --kill-after=15s 32m \
   ./buildtools/bin/waf build --targets=smbd/smbd -j 4 \
   2>&1 | tee "$output/build.log" || build_status=$?
 printf -- '- Waf smbd build exit code: `%d`.\n' "$build_status" | tee -a "$summary"
