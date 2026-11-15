@@ -1,0 +1,47 @@
+diff --git a/lib/replace/replace.c b/lib/replace/replace.c
+index dd07e6c..a85486c 100644
+--- a/lib/replace/replace.c
++++ b/lib/replace/replace.c
+@@ -1224,9 +1224,9 @@ const char *rep_getprogname(void)
+ 
+ #ifndef HAVE_COPY_FILE_RANGE
+ ssize_t rep_copy_file_range(int fd_in,
+-			    loff_t *off_in,
++			    off_t *off_in,
+ 			    int fd_out,
+-			    loff_t *off_out,
++			    off_t *off_out,
+ 			    size_t len,
+ 			    unsigned int flags)
+ {
+diff --git a/lib/replace/replace.h b/lib/replace/replace.h
+index 538d1f4..48d768f 100644
+--- a/lib/replace/replace.h
++++ b/lib/replace/replace.h
+@@ -1045,9 +1045,9 @@ const char *rep_getprogname(void);
+ #ifndef HAVE_COPY_FILE_RANGE
+ #define copy_file_range rep_copy_file_range
+ ssize_t rep_copy_file_range(int fd_in,
+-			    loff_t *off_in,
++			    off_t *off_in,
+ 			    int fd_out,
+-			    loff_t *off_out,
++			    off_t *off_out,
+ 			    size_t len,
+ 			    unsigned int flags);
+ #endif /* HAVE_COPY_FILE_RANGE */
+diff --git a/lib/replace/system/filesys.h b/lib/replace/system/filesys.h
+index 9738ad5..c8e374a 100644
+--- a/lib/replace/system/filesys.h
++++ b/lib/replace/system/filesys.h
+@@ -287,6 +287,10 @@ long rep_openat2(int dirfd, const char *pathname,
+ #undef HAVE_RENAMEAT2
+ #endif
+ 
++#if defined(__CYGWIN__) && defined(HAVE_RENAMEAT2)
++#include <cygwin/fs.h>
++#endif
++
+ #ifndef HAVE_RENAMEAT2
+ 
+ #ifndef RENAME_NOREPLACE

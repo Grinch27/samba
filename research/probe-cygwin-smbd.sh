@@ -13,6 +13,7 @@ if [[ $# != 1 ]]; then
 fi
 export PATH=/usr/bin:/bin
 export LC_ALL=C
+script_dir=$(dirname -- "$(realpath -e -- "${BASH_SOURCE[0]}")")
 host_system=$(uname -s)
 host_arch=$(uname -m)
 if [[ $host_system != CYGWIN* || $host_arch != x86_64 ]]; then
@@ -37,6 +38,9 @@ git -c core.autocrlf=false clone --quiet --depth 1 --branch samba-4.25.1 \
   https://github.com/samba-team/samba.git "$output/upstream-samba"
 cd "$output/upstream-samba"
 test "$(git rev-parse HEAD)" = "$source_commit"
+git apply --check --whitespace=error-all "$script_dir/cygwin-vfs-compat.patch"
+git apply --whitespace=error-all "$script_dir/cygwin-vfs-compat.patch"
+printf -- '- VFS portability patch: `cygwin-vfs-compat.patch`.\n' | tee -a "$summary"
 
 export PYTHONUNBUFFERED=1
 export WAF_NO_PREFORK=1

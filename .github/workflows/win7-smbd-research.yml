@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/win7-smbd-research.yml
+      - research/cygwin-vfs-compat.patch
       - research/probe-cygwin-smbd.sh
   workflow_dispatch:
 
