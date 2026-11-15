@@ -42,10 +42,11 @@ export PYTHONUNBUFFERED=1
 export WAF_NO_PREFORK=1
 
 configure_status=0
+# Cygwin 的 quotactl 探针通过，但其 dqblk 结构没有 dqb_curblocks。
 timeout --kill-after=15s 8m ./configure \
   --without-ad-dc --without-ads --without-ldap --without-pam \
   --without-gpgme --without-json --without-acl-support --without-libarchive \
-  --without-regedit --without-winexe --without-systemd --without-ldb-lmdb \
+  --without-regedit --without-winexe --without-systemd --without-ldb-lmdb --without-quotas \
   --disable-python --without-smb1-server --with-shared-modules='!vfs_snapper' \
   --disable-wsp --disable-spotlight --without-libunwind --nonshared-binary=smbd/smbd \
   2>&1 | tee "$output/configure.log" || configure_status=$?
