@@ -71,12 +71,15 @@ jobs:
             $datagramStatus = $LASTEXITCODE
             "Plain datagram probe exit code: $datagramStatus" | Tee-Object -FilePath $report -Append
             & .\legacy-datagram.exe descriptor 2>&1 | Tee-Object -FilePath $report -Append
-            "SCM_RIGHTS probe exit code: $LASTEXITCODE" | Tee-Object -FilePath $report -Append
-            if ($cryptoStatus -ne 0 -or $datagramStatus -ne 0) { exit 1 }
+            $descriptorStatus = $LASTEXITCODE
+            "SCM_RIGHTS probe exit code: $descriptorStatus" | Tee-Object -FilePath $report -Append
+            # 退出码 3 表示实验读到了报文且描述符缺失，证据记录在上方。
+            if ($cryptoStatus -ne 0 -or $datagramStatus -ne 0 -or $descriptorStatus -notin @(0, 3)) { exit 1 }
           } finally {
             $env:PATH = $oldPath
             Pop-Location
           }
+          exit 0
       - name: Save runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

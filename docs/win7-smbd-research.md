@@ -21,18 +21,26 @@
 | 历史归档构建依赖 | 归档默认 GCC `11.4.0-1`、Python `3.9.16-1`、GnuTLS `3.6.9-1`，其中 `perl-Parse-Yapp` 缺失。Samba 4.25.1 要求 GnuTLS 至少 `3.6.13`，检测不到 `getrandom` 时要求至少 `3.7.2`。历史归档需补齐加密与构建依赖 |
 | 新版 GnuTLS 的静态导入 | 对 Cygwin GnuTLS `3.8.13-1` 及其静态链接导入图中的 11 个 Cygwin DLL 递归检查。`cyggnutls-30.dll` 的 118 个直接导入符号和其余 11 个 DLL 直接导入 `cygwin1.dll` 的符号均可在 3.4.10 导出表找到。DLL 动态加载、系统 API、ABI 及 Win7 实际运行待验证 |
 | Windows Server 2022 上的 Cygwin 对照 | Cygwin `3.6.12-1` 通过 `HAVE_SECURE_MKSTEMP`、GnuTLS 和 Waf 配置汇总检查。未修改 Samba 源码的 `smbd` 构建在 `samba-cluster-support` DLL 链接阶段因 `lp_clustering`、`smb_panic` 等符号未解析而失败。Linux 对照构建与 Win7 目标构建分别记录 |
+| Samba 内置库静态合并 | `--nonshared-binary=smbd/smbd` 越过 `samba-cluster-support` 链接失败。首次构建受 16 分钟时限影响，延长时限后观察到 `sysquotas_4A.c` 假定 `struct dqblk` 存在 `dqb_curblocks`，Cygwin 头文件缺少该成员。独立文件共享原型使用上游 `--without-quotas` |
+| Cygwin 3.4.10 运行时对照 | 在 Windows Server 2022 运行使用 3.4.10 SDK 与启动对象构建的 PE。GnuTLS 3.8.13、HMAC-SHA256 和 AES-128-GCM 已知答案通过。跨 `fork()` 的具名 `AF_UNIX` datagram 收发通过。`SCM_RIGHTS` 的报文到达时缺少文件描述符，探针退出码为 3 |
 | Linux 本地回环对照 | Samba 4.25.1 `smbd`、`smbclient`、`testparm`、`smbpasswd` 构建完成。`testparm` 接受临时共享配置，`smbd` 启动时在内部 UNIX datagram socket 收到 `EPERM`。最小 Python 探针确认当前环境禁止 `AF_UNIX`，因此共享读写待在允许该 IPC 的环境复测 |
 
 [原生 Win7 探针运行](https://github.com/Grinch27/samba/actions/runs/43182908502) · [Cygwin 配置与链接日志](https://github.com/Grinch27/samba/actions/runs/43332194827) · [Samba 内部 IPC](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/lib/messaging/messages_dgm.c#L1044) · [连接派生进程](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/server.c#L1318) · [会话身份切换](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/uid.c#L453) · [Microsoft AF_UNIX 说明](https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/) · [Cygwin Windows 身份模拟](https://www.cygwin.com/cygwin-ug-net/ntsec.html) · [Cygwin 安装归档](https://cygwin.com/install.html#unsupported) · [CVUT 镜像](https://ftp.cvut.cz/mirrors/cygwin.com/x86_64/release/cygwin/) · [Samba GnuTLS 版本检测](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/wscript_configure_system_gnutls#L6)
 
-首次遇到的链接目标 `samba-cluster-support` 在 Waf 中允许未定义符号。PE DLL 仍需确定符号来源。本地最小 PE 复现表明导出全部符号无法修复缺失的依赖，合并两个对象后可以链接。下一次先使用 Samba 的 `--nonshared-binary=smbd/smbd` 测试，将 Samba 内部组件链接到服务端主程序，保留外部 DLL 依赖，再依据详细链接命令修正必要的 Waf 依赖。 [Samba 链接目标](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/wscript_build#L356) · [Waf 非共享链接选项](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/buildtools/wafsamba/wscript#L129)
+首次遇到的链接目标 `samba-cluster-support` 在 Waf 中允许未定义符号。PE DLL 仍需确定符号来源。本地最小 PE 复现表明导出全部符号无法修复缺失的依赖，合并两个对象后可以链接。`--nonshared-binary=smbd/smbd` 将 Samba 内部组件链接到服务端主程序，外部 DLL 仍由运行时加载。 [Samba 链接目标](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/wscript_build#L356) · [Waf 非共享链接选项](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/buildtools/wafsamba/wscript#L129) · [延长时限后的配额编译失败](https://github.com/Grinch27/samba/actions/runs/43732065983)
 
 历史索引生成于 2024-01-31 07:12:15 UTC，文件 SHA-256 为 `4bbf34f9922a2360b6bec9a149efad59a5fda5d33de5a28990c7480286dbf46d`。历史 HTTP 索引没有可用的对应签名，包哈希比对属于归档一致性证据。本轮新版包使用签名索引验证，CVUT 镜像 `setup.xz` 的 GPG 签名用 Cygwin 站点发布的公钥验证成功。该索引与 kernel.org 镜像索引 SHA-256 一致，12 个包的大小和 SHA-512 均匹配索引。 [历史索引](http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215/x86_64/setup.ini) · [Cygwin 安装验证说明](https://cygwin.com/faq.html) · [GnuTLS 软件包](https://www.cygwin.com/cygwin/packages/summary/libgnutls30.html)
 
+### `SCM_RIGHTS` 对服务端的影响
+
+Samba 的 `samba-dcerpcd` 用该机制把客户端套接字传给 RPC 工作进程。工作进程要求消息携带一个描述符，所以资源管理器浏览 `\\主机` 时所需的 `srvsvc` 共享枚举，必须单独验证。`smbd` 的 SMB3 Multichannel 也有连接套接字移交路径，首轮单通道实验可以避开该路径。先分别验收直连 `\\主机\共享` 的认证和文件操作、以及 `\\主机` 的共享列表。 [Samba RPC 套接字移交](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/rpc_server/rpc_host.c#L1630) · [RPC 工作进程接收](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/rpc_server/rpc_worker_internal.c#L360) · [SMB 连接移交](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/smbXsrv_client.c#L340) · [Cygwin 的描述符传递限制](https://www.cygwin.com/cygwin-ug-net/highlights.html#ov-hi-sockets)
+
+使用 [锁定的归档和测试源码](../research/cygwin-legacy/) 可以重建运行时探针。原始运行记录保留算法结果、报文结果和 PE 导入表。该次作业末尾还继承了最后一个探针的非零退出状态。更新后的工作流通过显式结束状态区分可诊断的描述符缺失与运行失败。 [首次运行结果](https://github.com/Grinch27/samba/actions/runs/43771336444) · [运行时实验工作流](../.github/workflows/win7-cygwin-legacy-probe.yml)
+
 ## 下一步与验收
 
-1. 固定 Cygwin 3.4.10 x64 构建环境，补齐 `Parse::Yapp`，验证候选 GnuTLS 及其传递依赖的 PE 导入和运行。若新版依赖在旧运行时的加载或基本操作失败，用旧 Cygwin 工具链从源码重建兼容的 GnuTLS/Nettle 依赖集。
-2. 编译 `smbd`、`testparm` 和服务端管理工具。用干净的 Win7 SP1 x64 虚拟机记录补丁级别、DLL 依赖、`--version` 和服务启动结果。通过 `testparm` 校验 `smb.conf`，验证回环高端口稳定监听和正常退出。
+1. 完成当前 Cygwin 上的 `smbd` 构建对照，再固定 Cygwin 3.4.10 x64 构建环境并补齐 `Parse::Yapp`。首轮原型验证工作组单通道文件共享，磁盘配额和 RPC 套接字传递分别验证。
+2. 在干净的 Win7 SP1 x64 虚拟机复测加密与 IPC 探针，记录补丁和 DLL 依赖。依次验收 `smbd --version`、`testparm` 校验 `smb.conf`、回环高端口监听和正常退出。
 3. 使用独立客户端验证至少 SMB 2.1 签名和账户认证。若项目要求 SMB 3.1.1 加密，单独验证实际协商方言和加密。覆盖 Unicode 名称、大文件、读写校验、错误密码、跨用户权限拒绝、并发锁及重启后的状态一致性。
 4. 核对本机 `LanmanServer` 与 TCP 445 的占用，确定监听方案。之后在隔离局域网用用户预期的客户端验证 `\\主机\共享`。正式产物验收还包括依赖许可证、对应源码和 Win7 运行说明。
 
