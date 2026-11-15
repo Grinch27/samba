@@ -23,7 +23,7 @@
 | Windows Server 2022 上的 Cygwin 对照 | Cygwin `3.6.12-1` 通过 `HAVE_SECURE_MKSTEMP`、GnuTLS 和 Waf 配置汇总检查。未修改 Samba 源码的 `smbd` 构建在 `samba-cluster-support` DLL 链接阶段因 `lp_clustering`、`smb_panic` 等符号未解析而失败。Linux 对照构建与 Win7 目标构建分别记录 |
 | Samba 内置库静态合并 | `--nonshared-binary=smbd/smbd` 越过 `samba-cluster-support` 链接失败。首次构建受 16 分钟时限影响，延长时限后观察到 `sysquotas_4A.c` 假定 `struct dqblk` 存在 `dqb_curblocks`，Cygwin 头文件缺少该成员。独立文件共享原型使用上游 `--without-quotas` |
 | Cygwin 3.4.10 运行时对照 | 在 Windows Server 2022 运行使用 3.4.10 SDK 与启动对象构建的 PE。GnuTLS 3.8.13、HMAC-SHA256 和 AES-128-GCM 已知答案通过。跨 `fork()` 的具名 `AF_UNIX` datagram 收发通过。`SCM_RIGHTS` 的报文到达时缺少文件描述符，探针退出码为 3 |
-| Linux 本地回环对照 | Samba 4.25.1 `smbd`、`smbclient`、`testparm`、`smbpasswd` 构建完成。`testparm` 接受临时共享配置，`smbd` 启动时在内部 UNIX datagram socket 收到 `EPERM`。最小 Python 探针确认当前环境禁止 `AF_UNIX`，因此共享读写待在允许该 IPC 的环境复测 |
+| Linux 文件共享对照 | 同一 Samba 4.25.1 在 Ubuntu 24.04 Runner 完成构建及功能测试。回环共享强制 SMB 2.1 签名，关闭 RPC 按需辅助进程及 Multichannel。直连共享、上传与下载 1 MiB 中文名文件、字节比对、重命名、删除和错误密码拒绝均通过 |
 
 [原生 Win7 探针运行](https://github.com/Grinch27/samba/actions/runs/43182908502) · [Cygwin 配置与链接日志](https://github.com/Grinch27/samba/actions/runs/43332194827) · [Samba 内部 IPC](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/lib/messaging/messages_dgm.c#L1044) · [连接派生进程](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/server.c#L1318) · [会话身份切换](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/uid.c#L453) · [Microsoft AF_UNIX 说明](https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/) · [Cygwin Windows 身份模拟](https://www.cygwin.com/cygwin-ug-net/ntsec.html) · [Cygwin 安装归档](https://cygwin.com/install.html#unsupported) · [CVUT 镜像](https://ftp.cvut.cz/mirrors/cygwin.com/x86_64/release/cygwin/) · [Samba GnuTLS 版本检测](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/wscript_configure_system_gnutls#L6)
 
@@ -31,11 +31,17 @@
 
 历史索引生成于 2024-01-31 07:12:15 UTC，文件 SHA-256 为 `4bbf34f9922a2360b6bec9a149efad59a5fda5d33de5a28990c7480286dbf46d`。历史 HTTP 索引没有可用的对应签名，包哈希比对属于归档一致性证据。本轮新版包使用签名索引验证，CVUT 镜像 `setup.xz` 的 GPG 签名用 Cygwin 站点发布的公钥验证成功。该索引与 kernel.org 镜像索引 SHA-256 一致，12 个包的大小和 SHA-512 均匹配索引。 [历史索引](http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215/x86_64/setup.ini) · [Cygwin 安装验证说明](https://cygwin.com/faq.html) · [GnuTLS 软件包](https://www.cygwin.com/cygwin/packages/summary/libgnutls30.html)
 
+历史索引缺失的 `Parse::Yapp::Driver` 可以从 `Parse-Yapp 1.21` 源码的 `lib/` 加入 `PERL5LIB`。CPAN 原始归档 SHA-256 为 `3810e998308fba2e0f4f26043035032b027ce51ce5c8a52a8b8e340ca65f13e5`，与签名索引对应的 Cygwin 源包中嵌入的原始归档逐字节一致。Linux Perl 5.40.1 的三组测试共 33 项通过，仍需在 Cygwin 的 Perl 5.36.3 下执行 Waf 的 PIDL 检测。 [Parse-Yapp 1.21](https://metacpan.org/release/WBRASWELL/Parse-Yapp-1.21) · [Samba 的 PIDL 检测](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/pidl/wscript#L23)
+
 ### `SCM_RIGHTS` 对服务端的影响
 
-Samba 的 `samba-dcerpcd` 用该机制把客户端套接字传给 RPC 工作进程。工作进程要求消息携带一个描述符，所以资源管理器浏览 `\\主机` 时所需的 `srvsvc` 共享枚举，必须单独验证。`smbd` 的 SMB3 Multichannel 也有连接套接字移交路径，首轮单通道实验可以避开该路径。先分别验收直连 `\\主机\共享` 的认证和文件操作、以及 `\\主机` 的共享列表。 [Samba RPC 套接字移交](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/rpc_server/rpc_host.c#L1630) · [RPC 工作进程接收](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/rpc_server/rpc_worker_internal.c#L360) · [SMB 连接移交](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/smbXsrv_client.c#L340) · [Cygwin 的描述符传递限制](https://www.cygwin.com/cygwin-ug-net/highlights.html#ov-hi-sockets)
+旧版 Cygwin 源码的 `fhandler_socket_local::sendmsg()` 对 `AF_LOCAL` 把辅助数据长度设为 0。Samba 的 `samba-dcerpcd` 用该机制把客户端套接字传给 RPC 工作进程。工作进程要求消息携带一个描述符，资源管理器浏览 `\\主机` 时所需的 `srvsvc` 共享枚举因此有明确的移植依赖。`smbd` 的 SMB3 Multichannel 也有独立的连接套接字移交路径。 [Cygwin 3.4.10 源包索引](https://ftp.cvut.cz/mirrors/cygwin.com/x86_64/release/cygwin/) · [Cygwin 的描述符传递限制](https://www.cygwin.com/cygwin-ug-net/highlights.html#ov-hi-sockets) · [Samba RPC 套接字移交](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/rpc_server/rpc_host.c#L1630) · [RPC 工作进程接收](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/rpc_server/rpc_worker_internal.c#L360) · [SMB 连接移交](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/smbXsrv_client.c#L340)
 
-使用 [锁定的归档和测试源码](../research/cygwin-legacy/) 可以重建运行时探针。原始运行记录保留算法结果、报文结果和 PE 导入表。该次作业末尾还继承了最后一个探针的非零退出状态。更新后的工作流通过显式结束状态区分可诊断的描述符缺失与运行失败。 [首次运行结果](https://github.com/Grinch27/samba/actions/runs/43771336444) · [运行时实验工作流](../.github/workflows/win7-cygwin-legacy-probe.yml)
+使用 [锁定的归档和测试源码](../research/cygwin-legacy/) 可以重建运行时探针。更新后的工作流记录描述符缺失的退出码 3，同时将加密、普通报文和程序执行错误单列。Linux 回环对照验证了关闭按需 RPC 后直连 `\\主机\共享` 可以进行身份认证及文件操作。下一轮分别检查 Win7 的直连共享和 `\\主机` 的共享列表。 [Cygwin 3.4.10 运行结果](https://github.com/Grinch27/samba/actions/runs/43771683491) · [Linux 签名读写运行结果](https://github.com/Grinch27/samba/actions/runs/43772456895) · [Linux 回环脚本](../research/probe-smbd-fileshare.sh)
+
+### 服务身份与文件权限
+
+Cygwin 默认将 `LocalSystem` 映射为 UID 18。Samba 的 `non_root_mode()` 用初始 UID 是否为 0 判断是否以特权方式运行，`gain_root()` 据此决定是否恢复特权身份。Win7 原型需要核对启动令牌、特权恢复和会话令牌切换，并用两个本地账号验证 NTFS 允许及拒绝结果。 [Cygwin SID 映射](https://www.cygwin.com/cygwin-ug-net/ntsec.html) · [Samba 的特权模式判断](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/lib/util_sec.c#L127) · [Samba 会话特权切换](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/sec_ctx.c#L100)
 
 ## 下一步与验收
 

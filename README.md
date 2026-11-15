@@ -6,7 +6,7 @@
 
 | 验证 | 状态 |
 | --- | --- |
-| Linux x64 原生对照 | `smbclient`、`smbd` 已构建，两个程序的 `--version` 都输出 `Version 4.25.1` |
+| Linux x64 文件共享对照 | Samba 4.25.1 通过强制 SMB 2.1 签名的直接共享访问、中文文件名读写和错误密码拒绝 |
 | LLVM-MinGW/MSVCRT 生成 x64、x86 Windows 6.1 PE | Winsock 探针通过架构、版本字段和直接 DLL 导入检查 |
 | Samba Waf 原生 Windows 交叉配置 | 实测 `_FILE_OFFSET_BITS=64` 后通过 `off_t` 大小检测。后续 `HAVE_SECURE_MKSTEMP` 需要目标系统提供运行结果 |
 | Cygwin 3.4.10 运行时对照 | Windows Server 2022 上，GnuTLS 3.8.13 的 HMAC-SHA256 和 AES-128-GCM 通过。普通进程间 datagram 可收发，`SCM_RIGHTS` 丢失文件描述符 |
@@ -19,3 +19,4 @@
 - [Win7 x64、x86 交叉配置探针](research/probe-win7.sh)
 - [Cygwin 服务端构建实验](https://github.com/Grinch27/samba/actions/workflows/win7-smbd-research.yml)
 - [Cygwin 3.4.10 运行时实验](https://github.com/Grinch27/samba/actions/workflows/win7-cygwin-legacy-probe.yml)
+- [Linux 签名文件共享对照](https://github.com/Grinch27/samba/actions/runs/43772456895)
