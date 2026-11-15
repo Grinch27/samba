@@ -1,0 +1,66 @@
+# 待确认的关键需求：Win7 上需要验证的 SMB 方言和客户端。
+# 歧义：Linux 用于检查配置和测试路径，目标系统仍待复测。
+# 后续研究：复用此处的直接访问用例验证 Win7 原型。
+# 潜在优化：在基线通过后评估缓存构建依赖。
+# 风险：回环测试使用独立配置与临时账号凭据，避免导出凭据。
+# 验证重点：使用固定 Samba 源码，分开记录构建与功能验证结果。
+name: Samba standalone file share control
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/samba-fileshare-control.yml
+      - research/probe-smbd-fileshare.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-control:
+    name: Signed SMB 2.1 standalone share on Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out research scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo -n apt-get update --quiet
+          sudo -n apt-get install --yes --no-install-recommends \
+            bison build-essential flex libcrypt-dev libgnutls28-dev libkrb5-dev \
+            libparse-yapp-perl libpopt-dev libreadline-dev libtirpc-dev pkg-config \
+            python3-dev rpcsvc-proto zlib1g-dev
+      - name: Build pinned standalone Samba server and test utilities
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir samba-control-evidence
+          git clone --quiet --depth 1 --branch samba-4.25.1 \
+            https://github.com/samba-team/samba.git samba-control-source
+          cd samba-control-source
+          test "$(git rev-parse HEAD)" = 02e8e3f93f4af787bcb3389cbff9e22e74567eb2
+          ./configure --without-ad-dc --without-ads --without-ldap --without-pam \
+            --without-gpgme --without-json --without-acl-support --without-libarchive \
+            --without-regedit --without-winexe --without-systemd --without-ldb-lmdb \
+            --disable-python --with-system-mitkrb5 --without-smb1-server \
+            --with-shared-modules='!vfs_snapper' --disable-wsp --disable-spotlight
+          PYTHONHASHSEED=1 WAF_MAKE=1 ./buildtools/bin/waf build -j "$(nproc)" \
+            --targets=smbd/smbd,client/smbclient,testparm,smbpasswd
+      - name: Exercise the direct file share with signed SMB 2.1
+        shell: bash
+        run: |
+          bash research/probe-smbd-fileshare.sh \
+            "$RUNNER_TEMP/samba-control-source/bin" "$RUNNER_TEMP/samba-control-evidence"
+      - name: Save test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: samba-signed-fileshare-linux-control
+          path: ${{ runner.temp }}/samba-control-evidence/
+          if-no-files-found: warn
+          retention-days: 7
