@@ -22,7 +22,7 @@ jobs:
   cygwin-control:
     name: smbd build on current Cygwin x64
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 65
     steps:
       - name: Preserve LF line endings
         shell: pwsh

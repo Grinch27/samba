@@ -32,6 +32,8 @@
 
 [默认 VFS 补丁](../research/cygwin-vfs-compat.patch) 从 Cygwin 头文件取无覆盖重命名标志，并让 Samba 文件复制回退的声明与实现使用 Waf 已验证为至少 64 位的 `off_t`。当前 Cygwin 的复制回退仍返回 `ENOSYS`，由 VFS 接续现有文件复制路径。 [VFS 构建失败日志](https://github.com/Grinch27/samba/actions/runs/43771336521) · [Waf 大文件要求](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/buildtools/wafsamba/wscript#L640)
 
+应用补丁后，Waf 配置成功。慢速 Runner 的构建在第 2242/2374 项触发 32 分钟时限，退出码为 124，尚未到达 VFS 任务。按截断前每项约 3 至 4 秒估算，还需约 7 至 9 分钟。重试将构建限时设为 52 分钟，整个作业限时设为 65 分钟，为配置、链接和诊断留出时间。 [带 VFS 补丁的限时运行](https://github.com/Grinch27/samba/actions/runs/43774502049)
+
 历史索引生成于 2024-01-31 07:12:15 UTC，文件 SHA-256 为 `4bbf34f9922a2360b6bec9a149efad59a5fda5d33de5a28990c7480286dbf46d`。历史 HTTP 索引没有可用的对应签名，包哈希比对属于归档一致性证据。本轮新版包使用签名索引验证，CVUT 镜像 `setup.xz` 的 GPG 签名用 Cygwin 站点发布的公钥验证成功。该索引与 kernel.org 镜像索引 SHA-256 一致，12 个包的大小和 SHA-512 均匹配索引。 [历史索引](http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215/x86_64/setup.ini) · [Cygwin 安装验证说明](https://cygwin.com/faq.html) · [GnuTLS 软件包](https://www.cygwin.com/cygwin/packages/summary/libgnutls30.html)
 
 历史索引缺失的 `Parse::Yapp::Driver` 可以从 `Parse-Yapp 1.21` 源码的 `lib/` 加入 `PERL5LIB`。CPAN 原始归档 SHA-256 为 `3810e998308fba2e0f4f26043035032b027ce51ce5c8a52a8b8e340ca65f13e5`，与签名索引对应的 Cygwin 源包中嵌入的原始归档逐字节一致。Linux Perl 5.40.1 的三组测试共 33 项通过，仍需在 Cygwin 的 Perl 5.36.3 下执行 Waf 的 PIDL 检测。 [Parse-Yapp 1.21](https://metacpan.org/release/WBRASWELL/Parse-Yapp-1.21) · [Samba 的 PIDL 检测](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/pidl/wscript#L23)
