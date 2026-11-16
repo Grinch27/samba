@@ -3,7 +3,7 @@
 # 后续研究：用同一批次的依赖在 Win7 SP1 虚拟机复现。
 # 潜在优化：稳定后复用校验通过的开发包缓存。
 # 风险：基础 IPC 与加密通过无法证明 smbd 可以提供共享。
-# 验证重点：分别记录 GnuTLS、具名 datagram 和 SCM_RIGHTS 的结果。
+# 验证重点：分别记录 GnuTLS、具名 datagram、SCM_RIGHTS 和重命名的结果。
 name: Cygwin 3.4.10 runtime research
 
 on:
@@ -73,8 +73,12 @@ jobs:
             & .\legacy-datagram.exe descriptor 2>&1 | Tee-Object -FilePath $report -Append
             $descriptorStatus = $LASTEXITCODE
             "SCM_RIGHTS probe exit code: $descriptorStatus" | Tee-Object -FilePath $report -Append
+            & .\legacy-filesystem.exe 2>&1 | Tee-Object -FilePath $report -Append
+            $filesystemStatus = $LASTEXITCODE
+            "Filesystem probe exit code: $filesystemStatus" | Tee-Object -FilePath $report -Append
             # 退出码 3 表示实验读到了报文且描述符缺失，证据记录在上方。
-            if ($cryptoStatus -ne 0 -or $datagramStatus -ne 0 -or $descriptorStatus -notin @(0, 3)) { exit 1 }
+            if ($cryptoStatus -ne 0 -or $datagramStatus -ne 0 -or
+                $descriptorStatus -notin @(0, 3) -or $filesystemStatus -ne 0) { exit 1 }
           } finally {
             $env:PATH = $oldPath
             Pop-Location

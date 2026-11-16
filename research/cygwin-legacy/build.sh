@@ -30,7 +30,7 @@ done < "$probe_dir/packages.tsv"
 
 sysroot="$output/sysroot/usr"
 cp -- "$sysroot/bin/"*.dll "$output/runtime/"
-for probe in datagram crypto; do
+for probe in datagram crypto filesystem; do
   libraries=()
   if [[ $probe == crypto ]]; then
     libraries+=("$sysroot/lib/libgnutls.dll.a")
