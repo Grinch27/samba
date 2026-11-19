@@ -64,6 +64,9 @@ jobs:
           try {
             $env:PATH = "$runtime;$([Environment]::SystemDirectory)"
             [Environment]::OSVersion.VersionString | Tee-Object -FilePath $report
+            $driveRoot = [System.IO.Path]::GetPathRoot($runtime)
+            $driveFormat = [System.IO.DriveInfo]::new($driveRoot).DriveFormat
+            "Filesystem for metadata probe: $driveFormat" | Tee-Object -FilePath $report -Append
             & .\legacy-crypto.exe 2>&1 | Tee-Object -FilePath $report -Append
             $cryptoStatus = $LASTEXITCODE
             "GnuTLS probe exit code: $cryptoStatus" | Tee-Object -FilePath $report -Append
