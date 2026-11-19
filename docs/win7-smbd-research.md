@@ -23,6 +23,7 @@
 | Windows Server 2022 上的 Cygwin 对照 | Cygwin `3.6.12-1` 通过 `HAVE_SECURE_MKSTEMP`、GnuTLS 和 Waf 配置汇总检查。未修改 Samba 源码的 `smbd` 构建在 `samba-cluster-support` DLL 链接阶段因 `lp_clustering`、`smb_panic` 等符号未解析而失败。Linux 对照构建与 Win7 目标构建分别记录 |
 | Samba 内置库静态合并 | `--nonshared-binary=smbd/smbd` 越过 `samba-cluster-support` 链接失败。延长时限后，构建在 `sysquotas_4A.c` 遇到 Cygwin `struct dqblk` 缺少 `dqb_curblocks`。使用 `--without-quotas` 后，构建进入第 2359/2374 项 `vfs_default` |
 | 默认 VFS 编译 | Cygwin 的 `renameat2()` 已检测到，`RENAME_NOREPLACE` 的定义来自 `<cygwin/fs.h>`。`copy_file_range()` 不可用时，Samba 的回退函数用 `loff_t *`，和调用方的 `off_t *` 在 Cygwin 3.6.12 上类型不同。这两处使构建退出码为 1 |
+| Windows Server 2022 服务端链接 | 应用默认 VFS 补丁后，Cygwin 3.6.12 对照完成 2374 项构建和链接。`smbd.exe --version` 退出码为 0，输出 `Version 4.25.1`。作业产物保存构建诊断和 DLL 依赖清单。 [成功运行](https://github.com/Grinch27/samba/actions/runs/43793004726) |
 | Cygwin 3.4.10 运行时对照 | 在 Windows Server 2022 运行使用 3.4.10 SDK 与启动对象构建的 PE。GnuTLS 3.8.13、HMAC-SHA256 和 AES-128-GCM 已知答案通过。跨 `fork()` 的具名 `AF_UNIX` datagram 收发通过。`SCM_RIGHTS` 的报文到达时缺少文件描述符，探针退出码为 3 |
 | Linux 文件共享对照 | 同一 Samba 4.25.1 在 Ubuntu 24.04 Runner 完成构建及功能测试。回环共享强制 SMB 2.1 签名，关闭 RPC 按需辅助进程及 Multichannel。直连共享、上传与下载 1 MiB 中文名文件、字节比对、重命名、删除和错误密码拒绝均通过 |
 
@@ -48,9 +49,25 @@
 
 Cygwin 默认将 `LocalSystem` 映射为 UID 18。Samba 的 `non_root_mode()` 用初始 UID 是否为 0 判断是否以特权方式运行，`gain_root()` 据此决定是否恢复特权身份。Win7 原型需要核对启动令牌、特权恢复和会话令牌切换，并用两个本地账号验证 NTFS 允许及拒绝结果。 [Cygwin SID 映射](https://www.cygwin.com/cygwin-ug-net/ntsec.html) · [Samba 的特权模式判断](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/lib/util_sec.c#L127) · [Samba 会话特权切换](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/source3/smbd/sec_ctx.c#L100)
 
+## 共享配置兼容性
+
+以默认模板和实际运行配置为两个验收输入。每份配置通过 `testparm` 后都要验证服务启动和共享操作。Win7 部署需要将配置中的 POSIX 路径映射到本机 NTFS 目录，并为 Samba 状态、缓存、锁和日志准备目录。两份配置存在同名共享时，分别验证各自的身份策略。 [testparm 手册](https://www.samba.org/samba/docs/current/man-html/testparm.1.html)
+
+| 配置功能 | 验收条件 |
+| --- | --- |
+| 认证、访问限制和强制身份 | 保留 `hosts allow`、`valid users`、`write list` 和访客策略。验证允许与拒绝场景。确认 `force user`、`force group` 解析到预期的账户和组，并检查新文件的 Windows 所有者、ACL 和实际读写权限 |
+| 文件操作 | 验证 `create mask`、`directory mask`、强制模式和 `veto files`。用两个客户端核对并发访问、重命名、锁和大文件内容 |
+| 扩展属性和备用数据流 | 构建时显式纳入 `vfs_streams_xattr`。从 SMB 客户端写入、列出和读回备用数据流，核对 DOS 属性，以及重命名和重启后的数据 |
+| TCP 445 和共享展示 | 先验证通过已知 UNC 路径直连，再用资源管理器验证 `browseable` 共享枚举。枚举依赖 `srvsvc` 和 RPC 套接字移交 |
+| 模板的家目录与打印 | 验证启用的 `[homes]` 只暴露预期的目录。启用 `[printers]` 时验证队列、spool 路径和打印 RPC |
+
+Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` 和 `user.DosStream.probe` 的二进制值读回一致，`user.DosStream.probe:$DATA` 写入返回 `EINVAL`。Samba 的 `streams_xattr` 默认添加 `:$DATA`，而 Cygwin 传给 NTFS 的扩展属性名保留该冒号。 [NTFS 实验](https://github.com/Grinch27/samba/actions/runs/44450541438) · [Samba 模块文档](https://www.samba.org/samba/docs/current/man-html/vfs_streams_xattr.8.html) · [Microsoft EA 命名要求](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/0eb94f48-6aac-41df-a878-79f4dcfd8989)
+
+`streams_xattr xattr_tdb` 是可验证的 Windows 存储候选。上游自测使用这组模块，`xattr_tdb` 将扩展属性名和值保存到独立的 TDB。验收需要覆盖数据库权限、备份、重启和文件重命名。若要求 Win7 本机应用直接看到原生 NTFS 备用数据流，则需要另行验证原生 ADS 后端。 [Samba 4.25.1 自测配置](https://github.com/samba-team/samba/blob/02e8e3f93f4af787bcb3389cbff9e22e74567eb2/selftest/target/Samba3.pm#L3698) · [vfs_xattr_tdb 手册](https://www.samba.org/samba/docs/current/man-html/vfs_xattr_tdb.8.html)
+
 ## 下一步与验收
 
-1. 完成当前 Cygwin 上的 `smbd` 构建对照，再固定 Cygwin 3.4.10 x64 构建环境并补齐 `Parse::Yapp`。首轮原型验证工作组单通道文件共享，磁盘配额和 RPC 套接字传递分别验证。
+1. 固定 Cygwin 3.4.10 x64 构建环境并补齐 `Parse::Yapp`。将 `smbd`、配置检查、账户管理工具和所需 VFS 模块纳入构建。首轮原型验证普通工作组文件共享。
 2. 在干净的 Win7 SP1 x64 虚拟机复测加密与 IPC 探针，记录补丁和 DLL 依赖。依次验收 `smbd --version`、`testparm` 校验 `smb.conf`、回环高端口监听和正常退出。
 3. 使用独立客户端验证至少 SMB 2.1 签名和账户认证。若项目要求 SMB 3.1.1 加密，单独验证实际协商方言和加密。覆盖 Unicode 名称、大文件、读写校验、错误密码、跨用户权限拒绝、并发锁及重启后的状态一致性。
 4. 核对本机 `LanmanServer` 与 TCP 445 的占用，确定监听方案。之后在隔离局域网用用户预期的客户端验证 `\\主机\共享`。正式产物验收还包括依赖许可证、对应源码和 Win7 运行说明。
