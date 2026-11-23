@@ -76,6 +76,8 @@ def closure(packages, requested):
         name = pending.pop()
         if name in chosen:
             continue
+        if name == "_windows":
+            continue  # Cygwin setup synthetic host capability, not an archive.
         if name not in packages:
             raise ValueError(f"Historical package dependency missing: {name}")
         chosen.add(name)
