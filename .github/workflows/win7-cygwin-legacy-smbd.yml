@@ -61,10 +61,34 @@ jobs:
           & $setup --quiet-mode --local-install --no-admin --no-verify --no-shortcuts --no-desktop --root $root --local-package-dir $cache --packages $env:CYGWIN_PACKAGES
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $bash = Join-Path $root 'bin/bash.exe'
+          if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
+            Get-ChildItem -LiteralPath $root -Force | Select-Object Name,FullName
+            if (Test-Path -LiteralPath (Join-Path $root 'bin')) {
+              Get-ChildItem -LiteralPath (Join-Path $root 'bin') -Name | Select-Object -First 30
+            }
+            throw "Cygwin installer reported success but bash.exe is missing: $bash"
+          }
           $version = (& $bash --noprofile --norc -c 'uname -r').Trim()
           if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3\.4\.10') { throw "Unexpected Cygwin runtime: $version" }
           & $bash --noprofile --norc -c 'gcc --version | head -n 1; python3 --version; perl -v'
           exit $LASTEXITCODE
+      - name: Preserve Cygwin installer diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          foreach ($candidate in @(
+            (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/var/log'),
+            (Join-Path $env:RUNNER_TEMP 'cygwin-cache'),
+            $env:RUNNER_TEMP
+          )) {
+            Get-ChildItem -LiteralPath $candidate -Filter 'setup.log*' -File -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 8 | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $destination ("installer-" + $_.Name)) -Force
+                Get-Content -LiteralPath $_.FullName -Tail 45
+              }
+          }
       - name: Overlay pinned GnuTLS and Parse Yapp
         shell: pwsh
         run: |
@@ -74,7 +98,7 @@ jobs:
           evidence=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-legacy-evidence")
           exec /usr/bin/bash "$project/research/cygwin-legacy/overlay.sh" "$evidence"
           '@
-          & $bash --noprofile --norc -c ($command -replace "\r\n", "\n")
+          & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
           exit $LASTEXITCODE
       - name: Build smbd and companion tools
         shell: pwsh
@@ -92,7 +116,7 @@ jobs:
             ./buildtools/bin/waf build --targets=testparm,smbpasswd -j 4 \
             2>&1 | tee "$evidence/tools-build.log"
           '@
-          & $bash --noprofile --norc -c ($command -replace "\r\n", "\n")
+          & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
           exit $LASTEXITCODE
       - name: Collect executable and DLL diagnostics
         if: always()
@@ -124,5 +148,6 @@ jobs:
             ${{ runner.temp }}/smbd-legacy-evidence/tools-build.log
             ${{ runner.temp }}/smbd-legacy-evidence/*-dependencies.txt
             ${{ runner.temp }}/smbd-legacy-evidence/binaries/*.exe
+            ${{ runner.temp }}/smbd-legacy-evidence/installer-*
           if-no-files-found: warn
           retention-days: 7
