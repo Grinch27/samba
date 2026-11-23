@@ -1,60 +1,150 @@
 #!/usr/bin/env python3
-# 待确认：历史快照能否继续提供固定哈希的包索引。
-# 歧义：setup 可能缓存未压缩或 xz 压缩索引。
-# 后续研究：确认全部构建依赖的确切包版本。
-# 潜在优化：下载缓存仅在有性能证据时启用。
-# 风险：历史索引未签名；固定哈希只是可复现完整性基线。
-# 验证重点：安装前核对索引 SHA-256 和所有包 SHA-512。
-"""Fail closed on changes to the archived Cygwin package index or archives."""
+# 待确认：历史快照中的开发包是否具有完整、无歧义的依赖闭包。
+# 歧义：部分虚拟包不包含 install 归档，其他包可提供它们。
+# 后续研究：记录最终包版本、工具链及 Win7 实际动态链接依赖。
+# 潜在优化：基线完成后考虑按固定索引缓存经过验证的归档。
+# 风险：历史索引没有可用签名，必须使用此前核实的索引 SHA-256。
+# 验证重点：下载索引固定、依赖可解析、全部文件长度及 SHA-512 正确。
+"""Download a checked Cygwin Time Machine package closure for offline setup."""
 
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import lzma
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sys
+from urllib.request import Request, urlopen
 
 INDEX_SHA256 = "4bbf34f9922a2360b6bec9a149efad59a5fda5d33de5a28990c7480286dbf46d"
-INSTALL = re.compile(r"^install:\s+(\S+)\s+(\d+)\s+([A-Fa-f0-9]{128})\s*$", re.M)
+MIRROR = "http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215/"
+INSTALL = re.compile(r"^install:\s+(\S+)\s+(\d+)\s+([a-fA-F0-9]{128})\s*$")
 
 
-def hash_file(path):
-    result = hashlib.sha512()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            result.update(chunk)
-    return result.hexdigest()
+def digest(path, method="sha512"):
+    checksum = hashlib.new(method)
+    with path.open("rb") as source:
+        for part in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(part)
+    return checksum.hexdigest()
+
+
+def select_index(cache):
+    for path in cache.rglob("*"):
+        if not path.is_file() or path.name not in {"setup.ini", "setup.xz"}:
+            continue
+        data = lzma.decompress(path.read_bytes()) if path.suffix == ".xz" else path.read_bytes()
+        if hashlib.sha256(data).hexdigest() == INDEX_SHA256:
+            return data.decode("utf-8"), path.parent.parent
+    raise ValueError("Expected Cygwin historical index SHA-256 not found")
+
+
+def read_records(index):
+    packages = {}
+    current = None
+    active = True
+    for line in index.splitlines():
+        if line.startswith("@ ") or line.startswith("Package: "):
+            name = line.split(None, 1)[1].strip()
+            current = packages[name] = {"base": False, "deps": set(), "install": None}
+            active = True
+        elif current is not None and line.startswith("["):
+            active = line.strip() == "[curr]"
+        elif current is not None and active:
+            if line.startswith("category:"):
+                current["base"] |= "Base" in line[9:].split()
+            elif line.startswith("requires:"):
+                current["deps"].update(line[9:].split())
+            elif line.startswith(("depends:", "depends2:")):
+                current["deps"].update(
+                    item.split("(", 1)[0].strip()
+                    for item in line.split(":", 1)[1].split(",")
+                    if item.strip()
+                )
+            else:
+                match = INSTALL.match(line)
+                if match:
+                    name, size, checksum = match.groups()
+                    current["install"] = (name, int(size), checksum.lower())
+    return packages
+
+
+def closure(packages, requested):
+    pending = [name for name, record in packages.items() if record["base"]]
+    pending.extend(requested)
+    chosen = set()
+    while pending:
+        name = pending.pop()
+        if name in chosen:
+            continue
+        if name not in packages:
+            raise ValueError(f"Historical package dependency missing: {name}")
+        chosen.add(name)
+        pending.extend(packages[name]["deps"] - chosen)
+    return [packages[name]["install"] for name in sorted(chosen)
+            if packages[name]["install"] is not None]
+
+
+def fetch_one(archive, root):
+    relative, expected_size, expected_hash = archive
+    path = PurePosixPath(relative)
+    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "x86_64":
+        raise ValueError(f"Invalid historical package path: {relative}")
+    output = root.joinpath(*path.parts)
+    if output.exists() and output.stat().st_size == expected_size and digest(output) == expected_hash:
+        return
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(output.name + ".partial")
+    url = MIRROR + relative
+    for attempt in range(3):
+        try:
+            with urlopen(Request(url, headers={"User-Agent": "Samba-Win7-Cygwin-Research"}), timeout=90) as response:
+                with temporary.open("wb") as destination:
+                    for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                        destination.write(chunk)
+            if temporary.stat().st_size != expected_size or digest(temporary) != expected_hash:
+                raise ValueError(f"Checksum failed for {relative}")
+            temporary.replace(output)
+            return
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            if attempt == 2:
+                raise
+
+
+def verify_archives(cache, root, index):
+    all_records = {
+        (path, int(size), checksum.lower())
+        for path, size, checksum in re.findall(INSTALL.pattern, index, re.M)
+    }
+    known = {name: (size, checksum) for name, size, checksum in all_records}
+    suffixes = (".tar.xz", ".tar.zst", ".tar.gz", ".tar.bz2")
+    archives = [path for path in cache.rglob("*")
+                if path.is_file() and path.name.endswith(suffixes)]
+    if not archives:
+        raise ValueError("No historical archives downloaded")
+    for archive in archives:
+        relative = archive.relative_to(root).as_posix()
+        if relative not in known:
+            raise ValueError(f"Unknown package in cache: {relative}")
+        size, checksum = known[relative]
+        if archive.stat().st_size != size or digest(archive) != checksum:
+            raise ValueError(f"Package integrity failure: {relative}")
+    print(f"Verified historical index and {len(archives)} package archives")
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: verify-cache.py <cygwin-cache>")
-    cache = Path(sys.argv[1]).resolve(strict=True)
-    index_files = [p for p in cache.rglob("*")
-                   if p.is_file() and p.name in {"setup.ini", "setup.xz"}]
-    indexes = []
-    for path in index_files:
-        data = lzma.decompress(path.read_bytes()) if path.suffix == ".xz" else path.read_bytes()
-        if hashlib.sha256(data).hexdigest() == INDEX_SHA256:
-            indexes.append(data)
-    if not indexes:
-        raise ValueError("Missing expected historical Cygwin package index (SHA-256)")
-    known = {name.replace("\\", "/").lower(): (int(size), sha.lower())
-             for name, size, sha in INSTALL.findall(indexes[0].decode("utf-8"))}
-    if not known:
-        raise ValueError("No package records in historical index")
-    archives = [p for p in cache.rglob("*")
-                if p.is_file() and p.name.endswith((".tar.xz", ".tar.zst", ".tar.bz2", ".tar.gz"))]
-    if not archives:
-        raise ValueError("No binary packages downloaded")
-    for path in archives:
-        matches = [value for name, value in known.items()
-                   if path.as_posix().lower().endswith("/" + name)]
-        if len(matches) != 1:
-            raise ValueError(f"Archive is missing or ambiguous in pinned index: {path}")
-        size, sha = matches[0]
-        if path.stat().st_size != size or hash_file(path) != sha:
-            raise ValueError(f"Archive checksum mismatch: {path}")
-    print(f"Verified pinned index and {len(archives)} downloaded packages")
+    if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[1] != "--download"):
+        raise SystemExit("Usage: verify-cache.py [--download] <cache directory> [comma-separated packages]")
+    download = len(sys.argv) == 4
+    cache = Path(sys.argv[2] if download else sys.argv[1]).resolve(strict=True)
+    index, root = select_index(cache)
+    if download:
+        packages = read_records(index)
+        archives = closure(packages, sys.argv[3].split(","))
+        print(f"Downloading and verifying {len(archives)} pinned Cygwin packages", flush=True)
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(lambda record: fetch_one(record, root), archives))
+    verify_archives(cache, root, index)
 
 
 if __name__ == "__main__":

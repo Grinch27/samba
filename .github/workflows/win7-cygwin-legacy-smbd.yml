@@ -27,7 +27,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      CYGWIN_PACKAGES: bison,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,rpcsvc-proto,zlib-devel,zstd
+      CYGWIN_PACKAGES: bison,cygwin-devel,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,rpcsvc-proto,zlib-devel,zstd
     steps:
       - name: Preserve LF line endings
         shell: pwsh
@@ -47,20 +47,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $setup --quiet-mode --download --no-admin --no-verify --only-site --no-shortcuts --no-desktop --site $mirror --root $root --local-package-dir $cache --packages $env:CYGWIN_PACKAGES
           exit $LASTEXITCODE
-      - name: Diagnose historical package download
-        if: always()
+      - name: Download and verify pinned historical packages
         shell: pwsh
         run: |
-          $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
-          Get-ChildItem -LiteralPath $cache -Recurse -File | Select-Object -First 60 FullName,Length | Format-Table -AutoSize
-          Get-ChildItem -Path $env:RUNNER_TEMP -Filter 'setup.log*' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Output "Cygwin setup log: $($_.FullName)"
-            Get-Content -LiteralPath $_.FullName -Tail 90
-          }
-      - name: Verify historical index and downloaded archives
-        shell: pwsh
-        run: |
-          python research/cygwin-legacy/verify-cache.py (Join-Path $env:RUNNER_TEMP 'cygwin-cache')
+          python research/cygwin-legacy/verify-cache.py --download (Join-Path $env:RUNNER_TEMP 'cygwin-cache') $env:CYGWIN_PACKAGES
           exit $LASTEXITCODE
       - name: Install verified packages offline
         shell: pwsh
