@@ -29,3 +29,11 @@
 首版服务端协议最低 SMB2_10（SMB 2.1）、最高尝试 SMB3_11（SMB 3.1.1），强制签名。Linux 对照分别固定 SMB 2.1 和 3.1.1，覆盖认证、中文名读写及密码拒绝。Win7 原生客户端最高仍为 SMB 2.1，较新的客户端才可协商更高版本。Cygwin 3.4.10 旧 ABI 和 Win7 运行还需实际测试。
 
 旧 ABI 工作流从 Cygwin Time Machine 下载历史包，在安装前校验固定索引 SHA-256 及各归档 SHA-512，然后在隔离 Runner 目录直接解包构建依赖；此路径不代替 Windows 7 正式安装验收。GnuTLS 和 Parse::Yapp 的额外依赖分别按固定哈希覆盖。现代 Cygwin 对照工作流不变。
+
+## 首版文件共享安全基线与交付条件（2026-11-23）
+
+局域网服务端通过本地账户的用户名和密码认证，使用 `ntlm auth = ntlmv2-only`、`map to guest = Never`、`server signing = mandatory`、`server min protocol = SMB2_10`、`server max protocol = SMB3_11`。`server smb encrypt = if_required` 只允许协商加密而不强制文件传输加密，**认证并不等于文件内容加密**。示例配置在 [`research/cygwin-legacy/sample-smb.conf`](research/cygwin-legacy/sample-smb.conf)，实际账户和 NTFS 路径必须在 Win7 部署时替换。
+
+首版**完整测试 Artifact**必须有 `smbd.exe`、`testparm.exe`、`smbpasswd.exe` 及各 EXE 的递归依赖 DLL、`manifest.json`、`SHA256SUMS` 和使用说明。缺少工具或依赖时打包步骤直接失败。Windows 系统 DLL 不进入包；运行时动态加载模块、Win7 系统 API、双账户 NTFS 隔离和第三方许可证仍需实机及发布前核验。**未通过 Win7 实机验收前不生成正式 GitHub Release。**
+
+2026-11-23 的 Cygwin 3.4.10 构建 [Run 45181375098](https://github.com/Grinch27/samba/actions/runs/45181375098) 在归档校验后卡在 Windows 解包阶段，90 分钟后被取消。下一轮对归档逐项记录及设置超时，避免同类无诊断长时间占用 Runner。Linux 签名的 SMB 2.1、SMB 3.1.1 功能测试已在 [Run 45179337628](https://github.com/Grinch27/samba/actions/runs/45179337628) 通过。

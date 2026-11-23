@@ -77,3 +77,11 @@ Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` �
 | 在 `Grinch27/samba` 保存研究与运行公开源码构建实验 | LOW | 本任务已指定仓库。完成构建及静态检查后记录实际结果 |
 | 在用户 Win7 上修改服务、监听、共享权限或防火墙 | HIGH | 先确认目标测试机和变更范围。实际监听变更留待批准 |
 | 发布可安装的 Samba Windows 服务端 | HIGH | 先完成 Win7 双账号和跨机共享验证、依赖审计及发布授权 |
+
+## 已确定的首版认证与交付门禁（2026-11-23）
+
+- 首版 LAN 共享采用 Samba 本地用户名、密码认证（NTLMv2），禁用匿名访问，强制 SMB 签名；SMB 版本从 2.1 起，最高目标 3.1.1。
+- 不要求 SMB 文件内容加密。采用 `server smb encrypt = if_required`，客户端仍可协商加密；不得将 NTLMv2 认证等同于传输加密。
+- 必须同时具备 `smbd.exe`、`testparm.exe`、`smbpasswd.exe`、递归 DLL 依赖和文件哈希清单，缺任意一项不得标记为完整包。
+- `cygcheck` 递归依赖扫描不保证检测按需加载的 DLL/VFS 模块；Win7 SP1 加载、用户权限和 NTFS 隔离未验收前只能上传实验 Artifact，不得创建正式 Release。
+- GitHub Actions Windows 历史 Cygwin 压缩包直接解包在 Run `45181375098` 超过 90 分钟仍未完成，后续先定位单包/解包工具阻塞并设置明确超时。
