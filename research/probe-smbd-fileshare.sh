@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 待确认的关键需求：Win7 上是否需要同时支持 SMB3 加密和共享枚举。
-# 歧义：此流程测量 Linux 对照，Win7 上的进程及身份语义待单独检查。
+# 歧义：Linux 对照签名与认证通过仍不代表 Win7 上的 NTFS 权限和服务已验证。
 # 后续研究：在 Cygwin 验证同一共享的访问路径和 NTFS 权限。
 # 潜在优化：端口及测试数据稳定后再扩展并发和锁测试。
 # 风险：测试需要 sudo，用于回环监听、身份切换及测试目录清理。
@@ -46,6 +46,8 @@ workgroup = WORKGROUP
 security = user
 passdb backend = tdbsam
 map to guest = Never
+ntlm auth = ntlmv2-only
+server smb encrypt = if_required
 interfaces = 127.0.0.1/8
 bind interfaces only = yes
 smb ports = $port
