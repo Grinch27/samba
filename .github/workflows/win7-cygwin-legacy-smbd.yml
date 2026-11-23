@@ -1,0 +1,128 @@
+# 待确认：旧 Cygwin 编译器及基础依赖是否完成 Samba 4.25.1 配置。
+# 歧义：Server 2022 构建不代表 Win7 可正确运行和切换 NTFS 身份。
+# 后续研究：Win7 VM 上的 SMB2+/签名、IPC 和双用户权限验收。
+# 潜在优化：冷编译成功后测量缓存及 Heimdal 路线。
+# 风险：历史镜像无索引签名，须先校验固定索引及包再离线安装。
+# 验证重点：3.4.10 ABI、Waf 配置、smbd 及辅助工具构建。
+name: Samba smbd Cygwin 3.4.10 Win7 research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/win7-cygwin-legacy-smbd.yml
+      - research/cygwin-legacy/verify-cache.py
+      - research/cygwin-legacy/overlay.sh
+      - research/cygwin-legacy/packages.tsv
+      - research/probe-cygwin-smbd.sh
+      - research/cygwin-vfs-compat.patch
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-smbd:
+    name: Samba 4.25.1 on Cygwin 3.4.10 x64
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CYGWIN_PACKAGES: bison,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,rpcsvc-proto,zlib-devel,zstd
+    steps:
+      - name: Preserve LF line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - name: Check out research scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download historical packages, do not install
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'setup-x86_64.exe'
+          $root = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
+          $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
+          $mirror = 'http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215'
+          curl.exe --fail --location --silent --show-error --retry 2 --max-time 180 --output $setup 'https://cygwin.com/setup-x86_64.exe'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $setup --quiet-mode --download --no-admin --no-verify --only-site --no-shortcuts --no-desktop --site $mirror --root $root --local-package-dir $cache --packages $env:CYGWIN_PACKAGES
+          exit $LASTEXITCODE
+      - name: Verify historical index and downloaded archives
+        shell: pwsh
+        run: |
+          python research/cygwin-legacy/verify-cache.py (Join-Path $env:RUNNER_TEMP 'cygwin-cache')
+          exit $LASTEXITCODE
+      - name: Install verified packages offline
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'setup-x86_64.exe'
+          $root = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
+          $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
+          & $setup --quiet-mode --local-install --no-admin --no-verify --no-shortcuts --no-desktop --root $root --local-package-dir $cache --packages $env:CYGWIN_PACKAGES
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $bash = Join-Path $root 'bin/bash.exe'
+          $version = (& $bash --noprofile --norc -c 'uname -r').Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3\.4\.10') { throw "Unexpected Cygwin runtime: $version" }
+          & $bash --noprofile --norc -c 'gcc --version | head -n 1; python3 --version; perl -v'
+          exit $LASTEXITCODE
+      - name: Overlay pinned GnuTLS and Parse Yapp
+        shell: pwsh
+        run: |
+          $bash = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/bash.exe'
+          $command = @'
+          project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
+          evidence=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-legacy-evidence")
+          exec /usr/bin/bash "$project/research/cygwin-legacy/overlay.sh" "$evidence"
+          '@
+          & $bash --noprofile --norc -c ($command -replace "\r\n", "\n")
+          exit $LASTEXITCODE
+      - name: Build smbd and companion tools
+        shell: pwsh
+        timeout-minutes: 76
+        run: |
+          $bash = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/bash.exe'
+          $command = @'
+          set -euo pipefail
+          project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
+          evidence=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-legacy-evidence")
+          export PERL5LIB="$evidence/Parse-Yapp-1.21/lib"
+          /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$evidence/build"
+          cd "$evidence/build/upstream-samba"
+          PYTHONHASHSEED=1 WAF_MAKE=1 timeout --kill-after=15s 15m \
+            ./buildtools/bin/waf build --targets=testparm,smbpasswd -j 4 \
+            2>&1 | tee "$evidence/tools-build.log"
+          '@
+          & $bash --noprofile --norc -c ($command -replace "\r\n", "\n")
+          exit $LASTEXITCODE
+      - name: Collect executable and DLL diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence'
+          $bin = Join-Path $evidence 'build/upstream-samba/bin'
+          $out = Join-Path $evidence 'binaries'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          if (Test-Path $bin) {
+            foreach ($name in @('smbd.exe', 'testparm.exe', 'smbpasswd.exe')) {
+              $file = Get-ChildItem -LiteralPath $bin -Filter $name -File -Recurse | Select-Object -First 1
+              if ($file) {
+                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $out $name)
+                & (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/cygcheck.exe') $file.FullName 2>&1 | Out-File -Encoding utf8 (Join-Path $evidence "$name-dependencies.txt")
+              }
+            }
+          }
+      - name: Save build evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smbd-cygwin-3.4.10-x64-research
+          path: |
+            ${{ runner.temp }}/smbd-legacy-evidence/build/summary.md
+            ${{ runner.temp }}/smbd-legacy-evidence/build/configure-tail.txt
+            ${{ runner.temp }}/smbd-legacy-evidence/build/build-tail.txt
+            ${{ runner.temp }}/smbd-legacy-evidence/build/smbd-dlls.txt
+            ${{ runner.temp }}/smbd-legacy-evidence/tools-build.log
+            ${{ runner.temp }}/smbd-legacy-evidence/*-dependencies.txt
+            ${{ runner.temp }}/smbd-legacy-evidence/binaries/*.exe
+          if-no-files-found: warn
+          retention-days: 7

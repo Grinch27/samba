@@ -7,11 +7,13 @@
 # 验证重点：强制 SMB 2.1 签名，核对正确密码、错误密码及文件内容。
 set -euo pipefail
 
-if [[ $# != 2 ]] || (( EUID == 0 )); then
-  printf 'Usage as a non-root user with sudo: %s <samba-bin> <evidence-directory>\n' "$0" >&2
+if [[ $# -lt 2 || $# -gt 3 ]] || (( EUID == 0 )); then
+  printf 'Usage as a non-root user with sudo: %s <samba-bin> <evidence-directory> [SMB2_10|SMB3_11]\n' "$0" >&2
   exit 2
 fi
 
+dialect=${3:-SMB2_10}
+case "$dialect" in SMB2_10|SMB3_11) ;; *) exit 2 ;; esac
 export LC_ALL=C.UTF-8
 bin=$(realpath -e -- "$1")
 evidence=$(realpath -e -- "$2")
@@ -35,6 +37,7 @@ umask 077
 mkdir share private state cache lock pid rpc
 config="$scratch/smb.conf"
 port=14456
+[[ $dialect == SMB3_11 ]] && port=14457
 cat > "$config" <<EOF
 [global]
 server role = standalone server
@@ -47,8 +50,8 @@ interfaces = 127.0.0.1/8
 bind interfaces only = yes
 smb ports = $port
 disable netbios = yes
-server min protocol = SMB2_10
-server max protocol = SMB2_10
+server min protocol = $dialect
+server max protocol = $dialect
 server signing = mandatory
 server multi channel support = no
 rpc start on demand helpers = no
@@ -82,7 +85,7 @@ server_pid=$!
 
 client() {
   "$bin/smbclient" //127.0.0.1/data --configfile="$config" --port="$port" \
-    --timeout=3 --client-protection=sign "$@"
+    --timeout=3 --client-protection=sign --max-protocol="$dialect" "$@"
 }
 
 connected=false
@@ -101,7 +104,7 @@ if [[ $connected != true ]]; then
   cat "$evidence/connect.txt" "$evidence/server.log" >&2
   exit 1
 fi
-printf 'Direct share connection with mandatory SMB 2.1 signing: PASS\n' | tee "$evidence/results.txt"
+printf 'Direct share connection with mandatory %s signing: PASS\n' "$dialect" | tee "$evidence/results.txt"
 
 head -c 1048576 /dev/urandom > upload.bin
 client -A auth-good -c 'put upload.bin "共享.bin"' > "$evidence/upload.txt" 2>&1

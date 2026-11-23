@@ -54,8 +54,11 @@ jobs:
       - name: Exercise the direct file share with signed SMB 2.1
         shell: bash
         run: |
+          mkdir -p "$RUNNER_TEMP/samba-control-evidence/smb2" "$RUNNER_TEMP/samba-control-evidence/smb3"
           bash research/probe-smbd-fileshare.sh \
-            "$RUNNER_TEMP/samba-control-source/bin" "$RUNNER_TEMP/samba-control-evidence"
+            "$RUNNER_TEMP/samba-control-source/bin" "$RUNNER_TEMP/samba-control-evidence/smb2" SMB2_10
+          bash research/probe-smbd-fileshare.sh \
+            "$RUNNER_TEMP/samba-control-source/bin" "$RUNNER_TEMP/samba-control-evidence/smb3" SMB3_11
       - name: Save test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
