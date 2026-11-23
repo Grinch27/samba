@@ -13,6 +13,7 @@ on:
       - .github/workflows/win7-cygwin-legacy-smbd.yml
       - research/cygwin-legacy/verify-cache.py
       - research/cygwin-legacy/package-smbd.py
+      - research/cygwin-legacy/extract-archive.py
       - research/cygwin-legacy/sample-smb.conf
       - research/cygwin-legacy/overlay.sh
       - research/cygwin-legacy/packages.tsv
@@ -69,7 +70,14 @@ jobs:
           foreach ($archive in $archives) {
             $index++
             Write-Host "Extracting $index/$($archives.Count): $($archive.Name)"
-            $process = Start-Process -FilePath "$env:WINDIR\System32\tar.exe" -ArgumentList @('-xf', $archive.FullName, '-C', $root) -NoNewWindow -PassThru
+            if ($archive.Name -match '\.tar\.(xz|gz|bz2)$') {
+              $extractor = (Get-Command python).Source
+              $parameters = @('research/cygwin-legacy/extract-archive.py', $archive.FullName, $root)
+            } else {
+              $extractor = "$env:WINDIR\System32\tar.exe"
+              $parameters = @('-xf', $archive.FullName, '-C', $root)
+            }
+            $process = Start-Process -FilePath $extractor -ArgumentList $parameters -NoNewWindow -PassThru
             if (-not $process.WaitForExit(40000)) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
               throw "Archive extraction timed out: $($archive.Name)"
