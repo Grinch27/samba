@@ -103,7 +103,7 @@ def closure(packages, requested):
 def fetch_one(archive, root):
     relative, expected_size, expected_hash = archive
     path = PurePosixPath(relative)
-    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "x86_64":
+    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] not in {"x86_64", "noarch"}:
         raise ValueError(f"Invalid historical package path: {relative}")
     output = root.joinpath(*path.parts)
     if output.exists() and output.stat().st_size == expected_size and digest(output) == expected_hash:
