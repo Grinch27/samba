@@ -14,6 +14,12 @@ import tarfile
 
 
 def safe_member(member, destination):
+    parts = PurePosixPath(member.name).parts
+    # Windows cannot represent certain Unix manual filenames such as ":.1.gz".
+    # Documentation trees are not required for Samba build dependencies.
+    if parts[:3] in {("usr", "share", "man"), ("usr", "share", "info"),
+                     ("usr", "share", "doc")}:
+        return None
     if member.issym() or member.islnk():
         target = member.linkname
         if target.startswith('/'):
