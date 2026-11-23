@@ -62,84 +62,7 @@ jobs:
           $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
           New-Item -ItemType Directory -Force $root | Out-Null
           $archives = @(Get-ChildItem -LiteralPath $cache -File -Recurse |
-            Where-Object { $_.Name -match '\.tar\.(xz|zst|gz|bz2)      - name: Overlay pinned GnuTLS and Parse Yapp
-        shell: pwsh
-        run: |
-          $bash = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/bash.exe'
-          $command = @'
-          project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
-          evidence=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-legacy-evidence")
-          exec /usr/bin/bash "$project/research/cygwin-legacy/overlay.sh" "$evidence"
-          '@
-          & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
-          exit $LASTEXITCODE
-      - name: Build smbd and companion tools
-        shell: pwsh
-        timeout-minutes: 76
-        run: |
-          $bash = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/bash.exe'
-          $command = @'
-          set -euo pipefail
-          project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
-          evidence=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-legacy-evidence")
-          export PERL5LIB="$evidence/Parse-Yapp-1.21/lib"
-          /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$evidence/build"
-          cd "$evidence/build/upstream-samba"
-          PYTHONHASHSEED=1 WAF_MAKE=1 timeout --kill-after=15s 15m \
-            ./buildtools/bin/waf build --targets=testparm,smbpasswd -j 4 \
-            2>&1 | tee "$evidence/tools-build.log"
-          '@
-          & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
-          exit $LASTEXITCODE
-      - name: Prepare complete three-program DLL package
-        shell: pwsh
-        run: |
-          $source = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence/build/upstream-samba'
-          $cygwin = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
-          $output = Join-Path $env:RUNNER_TEMP 'samba-win7-3.4.10-package'
-          python research/cygwin-legacy/package-smbd.py --source-root $source --cygwin-root $cygwin --output $output
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload complete DLL package (research only)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: samba-4.25.1-cygwin-3.4.10-x64-experimental
-          path: ${{ runner.temp }}/samba-win7-3.4.10-package/
-          if-no-files-found: error
-          retention-days: 7
-      - name: Collect executable and DLL diagnostics
-        if: always()
-        shell: pwsh
-        run: |
-          $evidence = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence'
-          $bin = Join-Path $evidence 'build/upstream-samba/bin'
-          $out = Join-Path $evidence 'binaries'
-          New-Item -ItemType Directory -Force $out | Out-Null
-          if (Test-Path $bin) {
-            foreach ($name in @('smbd.exe', 'testparm.exe', 'smbpasswd.exe')) {
-              $file = Get-ChildItem -LiteralPath $bin -Filter $name -File -Recurse | Select-Object -First 1
-              if ($file) {
-                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $out $name)
-                & (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/cygcheck.exe') $file.FullName 2>&1 | Out-File -Encoding utf8 (Join-Path $evidence "$name-dependencies.txt")
-              }
-            }
-          }
-      - name: Save build evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: smbd-cygwin-3.4.10-x64-research
-          path: |
-            ${{ runner.temp }}/smbd-legacy-evidence/build/summary.md
-            ${{ runner.temp }}/smbd-legacy-evidence/build/configure-tail.txt
-            ${{ runner.temp }}/smbd-legacy-evidence/build/build-tail.txt
-            ${{ runner.temp }}/smbd-legacy-evidence/build/smbd-dlls.txt
-            ${{ runner.temp }}/smbd-legacy-evidence/tools-build.log
-            ${{ runner.temp }}/smbd-legacy-evidence/*-dependencies.txt
-            ${{ runner.temp }}/smbd-legacy-evidence/binaries/*.exe
-            ${{ runner.temp }}/smbd-legacy-evidence/installer-*
-          if-no-files-found: warn
-          retention-days: 7
- } |
+            Where-Object { $_.Name -match '\.tar\.(xz|zst|gz|bz2)$' } |
             Sort-Object FullName)
           if ($archives.Count -lt 100) { throw "Historical dependency set incomplete: $($archives.Count) archives" }
           $index = 0
@@ -192,6 +115,21 @@ jobs:
           '@
           & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
           exit $LASTEXITCODE
+      - name: Prepare complete three-program DLL package
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence/build/upstream-samba'
+          $cygwin = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
+          $output = Join-Path $env:RUNNER_TEMP 'samba-win7-3.4.10-package'
+          python research/cygwin-legacy/package-smbd.py --source-root $source --cygwin-root $cygwin --output $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload complete DLL package (research only)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: samba-4.25.1-cygwin-3.4.10-x64-experimental
+          path: ${{ runner.temp }}/samba-win7-3.4.10-package/
+          if-no-files-found: error
+          retention-days: 7
       - name: Collect executable and DLL diagnostics
         if: always()
         shell: pwsh
