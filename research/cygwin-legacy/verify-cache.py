@@ -45,13 +45,15 @@ def read_records(index):
     for line in index.splitlines():
         if line.startswith("@ ") or line.startswith("Package: "):
             name = line.split(None, 1)[1].strip()
-            current = packages[name] = {"base": False, "deps": set(), "install": None}
+            current = packages[name] = {"base": False, "deps": set(), "provides": set(), "install": None}
             active = True
         elif current is not None and line.startswith("["):
             active = line.strip() == "[curr]"
         elif current is not None and active:
             if line.startswith("category:"):
                 current["base"] |= "Base" in line[9:].split()
+            elif line.startswith("provides:"):
+                current["provides"].update(part.strip() for part in line[9:].split(",") if part.strip())
             elif line.startswith("requires:"):
                 current["deps"].update(line[9:].split())
             elif line.startswith(("depends:", "depends2:")):
@@ -71,6 +73,10 @@ def read_records(index):
 def closure(packages, requested):
     pending = [name for name, record in packages.items() if record["base"]]
     pending.extend(requested)
+    providers = {}
+    for package, record in packages.items():
+        for virtual in record["provides"]:
+            providers.setdefault(virtual, []).append(package)
     chosen = set()
     while pending:
         name = pending.pop()
@@ -79,7 +85,15 @@ def closure(packages, requested):
         if name == "_windows":
             continue  # Cygwin setup synthetic host capability, not an archive.
         if name not in packages:
-            raise ValueError(f"Historical package dependency missing: {name}")
+            alternatives = providers.get(name, [])
+            selected = [provider for provider in alternatives if provider in chosen or provider in requested]
+            if len(selected) == 1:
+                pending.append(selected[0])
+                continue
+            if len(alternatives) == 1:
+                pending.append(alternatives[0])
+                continue
+            raise ValueError(f"Historical dependency has no unique provider: {name} ({alternatives})")
         chosen.add(name)
         pending.extend(packages[name]["deps"] - chosen)
     return [packages[name]["install"] for name in sorted(chosen)
