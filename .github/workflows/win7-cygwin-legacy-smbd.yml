@@ -47,6 +47,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $setup --quiet-mode --download --no-admin --no-verify --only-site --no-shortcuts --no-desktop --site $mirror --root $root --local-package-dir $cache --packages $env:CYGWIN_PACKAGES
           exit $LASTEXITCODE
+      - name: Diagnose historical package download
+        if: always()
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
+          Get-ChildItem -LiteralPath $cache -Recurse -File | Select-Object -First 60 FullName,Length | Format-Table -AutoSize
+          Get-ChildItem -Path $env:RUNNER_TEMP -Filter 'setup.log*' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Output "Cygwin setup log: $($_.FullName)"
+            Get-Content -LiteralPath $_.FullName -Tail 90
+          }
       - name: Verify historical index and downloaded archives
         shell: pwsh
         run: |
