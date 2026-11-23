@@ -2,7 +2,7 @@
 # 歧义：Server 2022 构建不代表 Win7 可正确运行和切换 NTFS 身份。
 # 后续研究：Win7 VM 上的 SMB2+/签名、IPC 和双用户权限验收。
 # 潜在优化：冷编译成功后测量缓存及 Heimdal 路线。
-# 风险：历史镜像无索引签名，须先校验固定索引及包再离线安装。
+# 风险：历史镜像无索引签名，必须校验固定索引与包；直接解包不执行通用安装器脚本。
 # 验证重点：3.4.10 ABI、Waf 配置、smbd 及辅助工具构建。
 name: Samba smbd Cygwin 3.4.10 Win7 research
 
@@ -52,43 +52,30 @@ jobs:
         run: |
           python research/cygwin-legacy/verify-cache.py --download (Join-Path $env:RUNNER_TEMP 'cygwin-cache') $env:CYGWIN_PACKAGES
           exit $LASTEXITCODE
-      - name: Install verified packages offline
+      - name: Extract verified historical Cygwin packages
         shell: pwsh
         run: |
-          $setup = Join-Path $env:RUNNER_TEMP 'setup-x86_64.exe'
           $root = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
           $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
-          & $setup --quiet-mode --local-install --no-admin --no-verify --no-shortcuts --no-desktop --root $root --local-package-dir $cache --packages $env:CYGWIN_PACKAGES
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force $root | Out-Null
+          $archives = @(Get-ChildItem -LiteralPath $cache -File -Recurse |
+            Where-Object { $_.Name -match '\.tar\.(xz|zst|gz|bz2)$' } |
+            Sort-Object FullName)
+          if ($archives.Count -lt 100) { throw "Historical dependency set incomplete: $($archives.Count) archives" }
+          foreach ($archive in $archives) {
+            & "$env:WINDIR\System32\tar.exe" -xf $archive.FullName -C $root
+            if ($LASTEXITCODE -ne 0) { throw "Archive extraction failed: $($archive.Name)" }
+          }
           $bash = Join-Path $root 'bin/bash.exe'
           if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
-            Get-ChildItem -LiteralPath $root -Force | Select-Object Name,FullName
-            if (Test-Path -LiteralPath (Join-Path $root 'bin')) {
-              Get-ChildItem -LiteralPath (Join-Path $root 'bin') -Name | Select-Object -First 30
-            }
-            throw "Cygwin installer reported success but bash.exe is missing: $bash"
+            throw "Verified archive extraction did not produce bash.exe"
           }
-          $version = (& $bash --noprofile --norc -c 'uname -r').Trim()
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3\.4\.10') { throw "Unexpected Cygwin runtime: $version" }
+          $version = & $bash --noprofile --norc -c 'uname -r'
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3\.4\.10') {
+            throw "Cygwin runtime check failed: $version"
+          }
           & $bash --noprofile --norc -c 'gcc --version | head -n 1; python3 --version; perl -v'
-          exit $LASTEXITCODE
-      - name: Preserve Cygwin installer diagnostics
-        if: always()
-        shell: pwsh
-        run: |
-          $destination = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence'
-          New-Item -ItemType Directory -Force $destination | Out-Null
-          foreach ($candidate in @(
-            (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/var/log'),
-            (Join-Path $env:RUNNER_TEMP 'cygwin-cache'),
-            $env:RUNNER_TEMP
-          )) {
-            Get-ChildItem -LiteralPath $candidate -Filter 'setup.log*' -File -Recurse -ErrorAction SilentlyContinue |
-              Select-Object -First 8 | ForEach-Object {
-                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $destination ("installer-" + $_.Name)) -Force
-                Get-Content -LiteralPath $_.FullName -Tail 45
-              }
-          }
+          if ($LASTEXITCODE -ne 0) { throw "Historical compiler/Perl/Python check failed" }
       - name: Overlay pinned GnuTLS and Parse Yapp
         shell: pwsh
         run: |
