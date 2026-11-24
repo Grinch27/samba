@@ -24,7 +24,12 @@ sudo -n true
 
 scratch=$(mktemp -d)
 server_pid=
+relay_pid=
 cleanup() {
+  if [[ -n $relay_pid ]]; then
+    kill -TERM "$relay_pid" 2>/dev/null || true
+    wait "$relay_pid" 2>/dev/null || true
+  fi
   if [[ -n $server_pid ]]; then
     kill -TERM "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
@@ -36,6 +41,7 @@ cd -- "$scratch"
 umask 077
 mkdir share private state cache lock pid rpc
 config="$scratch/smb.conf"
+user=$(id -un)
 port=14456
 [[ $dialect == SMB3_11 ]] && port=14457
 cat > "$config" <<EOF
@@ -46,6 +52,10 @@ workgroup = WORKGROUP
 security = user
 passdb backend = tdbsam
 map to guest = Never
+null passwords = no
+hosts allow = 127.0.0.1
+hosts deny = ALL
+hostname lookups = no
 ntlm auth = ntlmv2-only
 server smb encrypt = if_required
 interfaces = 127.0.0.1/8
@@ -68,13 +78,19 @@ ncalrpc dir = $scratch/rpc
 
 [data]
 path = $scratch/share
+valid users = $user
 read only = no
+guest ok = no
+
+[blocked]
+path = $scratch/share
+valid users = SAMBA_NO_SUCH_ACCOUNT
+read only = yes
 guest ok = no
 EOF
 
 "$bin/smbd" --version | tee "$evidence/version.txt"
 "$bin/testparm" -s "$config" > "$evidence/testparm.txt" 2>&1
-user=$(id -un)
 secret=$(openssl rand -hex 20)
 printf '%s\n%s\n' "$secret" "$secret" | sudo -n "$bin/smbpasswd" -s -a -c "$config" "$user"
 printf 'username = %s\npassword = %s\n' "$user" "$secret" > auth-good
@@ -126,3 +142,41 @@ if client -A auth-bad -c ls > "$evidence/deny.txt" 2>&1; then
 fi
 grep -Fq NT_STATUS_LOGON_FAILURE "$evidence/deny.txt"
 printf 'Wrong password rejected with NT_STATUS_LOGON_FAILURE: PASS\n' | tee -a "$evidence/results.txt"
+
+# The relay opens its upstream connection from 127.0.0.2, not the allowed
+# 127.0.0.1. Its listener is loopback-only; credentials are not logged.
+relay_port=$((port + 10))
+socat "TCP-LISTEN:$relay_port,bind=127.0.0.1,reuseaddr,fork" \
+  "TCP:127.0.0.1:$port,bind=127.0.0.2" > "$evidence/relay.log" 2>&1 &
+relay_pid=$!
+for attempt in {1..10}; do
+  if ss -H -ltn "sport = :$relay_port" | grep -q .; then
+    break
+  fi
+  kill -0 "$relay_pid"
+  sleep 1
+done
+ss -H -ltn "sport = :$relay_port" | grep -q .
+if "$bin/smbclient" //127.0.0.1/data --configfile="$config" --port="$relay_port" \
+    --timeout=3 --client-protection=sign --max-protocol="$dialect" \
+    -A auth-good -c ls > "$evidence/ip-deny.txt" 2>&1; then
+  echo "Non-whitelisted source accepted" >&2
+  exit 1
+fi
+grep -Ei 'denied connection from.*127\.0\.0\.2|connection denied.*127\.0\.0\.2|127\.0\.0\.2.*(denied|not allowed)' "$evidence/server.log"
+printf 'Non-whitelisted source 127.0.0.2 rejected: PASS\n' | tee -a "$evidence/results.txt"
+
+if client -N -U '%' -c ls > "$evidence/guest-deny.txt" 2>&1; then
+  echo "Anonymous connection accepted" >&2
+  exit 1
+fi
+printf 'Anonymous access rejected: PASS\n' | tee -a "$evidence/results.txt"
+
+if "$bin/smbclient" //127.0.0.1/blocked --configfile="$config" --port="$port" \
+    --timeout=3 --client-protection=sign --max-protocol="$dialect" \
+    -A auth-good -c ls > "$evidence/user-deny.txt" 2>&1; then
+  echo "Account not in valid users accepted" >&2
+  exit 1
+fi
+grep -Fq NT_STATUS_ACCESS_DENIED "$evidence/user-deny.txt"
+printf 'Authenticated but unauthorized account rejected: PASS\n' | tee -a "$evidence/results.txt"

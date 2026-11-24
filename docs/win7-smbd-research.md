@@ -89,3 +89,7 @@ Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` �
 ## 2026-11-24 便携式预发布授权
 
 不要求 LanmanServer 共存；不自动停服务，不变更用户实机。首版 ZIP 便携包优先，Win7 VM 和双用户 NTFS 实机验收延后。完整三工具、DLL、配置、启动检查及精确对应源码通过后，自动创建 GitHub Pre-release，不再重复批准。专项许可证审计延后但对应源码和许可材料不能省略。发布 Job 单独权限，固定 preview1 标签，不覆盖已发布版本；失败草稿保留供后续诊断。
+
+## P0 IP 与身份访问控制
+
+默认仅回环、全局 IP 白名单、默认拒绝、禁止空密码/匿名、每共享 valid users 和只读默认，用户通过 smbpasswd 交互创建独立凭据。预发布门禁增加 Linux 正反向测试和 Windows testparm 白名单检查；Windows 真实认证、实际 IP 拒绝与 NTFS ACL 尚未验证，不得声称安全可用。首版不注册 Windows 服务、不自动修改防火墙或停 LanmanServer。start.cmd/stop.cmd 应以明确配置及所属进程身份为边界，禁止按进程名无差别终止。后续实际 Windows 测试优先于体积优化。

@@ -13,6 +13,7 @@ on:
       - .github/workflows/samba-fileshare-control.yml
       - research/probe-smbd-fileshare.sh
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -34,7 +35,7 @@ jobs:
           sudo -n apt-get install --yes --no-install-recommends \
             bison build-essential flex libcrypt-dev libgnutls28-dev libkrb5-dev \
             libparse-yapp-perl libpopt-dev libreadline-dev libtirpc-dev pkg-config \
-            python3-dev rpcsvc-proto zlib1g-dev
+            python3-dev rpcsvc-proto socat zlib1g-dev
       - name: Build pinned standalone Samba server and test utilities
         shell: bash
         working-directory: ${{ runner.temp }}
@@ -51,7 +52,7 @@ jobs:
             --with-shared-modules='!vfs_snapper' --disable-wsp --disable-spotlight
           PYTHONHASHSEED=1 WAF_MAKE=1 ./buildtools/bin/waf build -j "$(nproc)" \
             --targets=smbd/smbd,client/smbclient,testparm,smbpasswd
-      - name: Exercise the direct file share with signed SMB 2.1
+      - name: Exercise signed SMB 2.1 and 3.1.1 access control
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/samba-control-evidence/smb2" "$RUNNER_TEMP/samba-control-evidence/smb3"

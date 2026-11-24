@@ -16,6 +16,8 @@ on:
       - research/cygwin-legacy/overlay-packages.py
       - research/cygwin-legacy/prepare-release.py
       - research/cygwin-legacy/sample-smb.conf
+      - research/probe-smbd-fileshare.sh
+      - .github/workflows/samba-fileshare-control.yml
       - research/cygwin-legacy/overlay.sh
       - research/cygwin-legacy/packages.tsv
       - research/probe-cygwin-smbd.sh
@@ -142,6 +144,10 @@ jobs:
             }
             & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf')
             if ($LASTEXITCODE -ne 0) { throw 'Sample configuration rejected' }
+            $allowed = & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf') localhost 127.0.0.1 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $allowed -notmatch 'Allow connection from localhost.*to data') { throw "Whitelist allow check failed: $allowed" }
+            $denied = & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf') outside 192.0.2.1 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $denied -notmatch 'Deny connection from outside.*to data') { throw "Whitelist deny check failed: $denied" }
           } finally { $env:PATH = $previous }
           python research/cygwin-legacy/prepare-release.py --cache (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --packages research/cygwin-legacy/packages.tsv --samba $source --project $env:GITHUB_WORKSPACE --package $package --output (Join-Path $env:RUNNER_TEMP 'samba-release')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -185,9 +191,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  access-control:
+    name: Verify SMB access-control reference
+    uses: ./.github/workflows/samba-fileshare-control.yml
+    permissions:
+      contents: read
+
   prerelease:
     name: Publish first portable ZIP preview
-    needs: legacy-smbd
+    needs: [legacy-smbd, access-control]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10

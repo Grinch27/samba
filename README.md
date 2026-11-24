@@ -43,3 +43,9 @@
 用户批准：Windows 7 SP1 x64 及以上独立 SMB 服务，不要求与 LanmanServer 同时运行；默认 TCP 445，冲突时报告，不自动停止系统服务。首版优先构建 ZIP，不制作 MSI/EXE 安装器，不安排 Win7 VM 验收。三个工具、递归 DLL、配置模板、隔离 PATH 启动、testparm、SHA256 和对应源码完整后，自动创建唯一 `v4.25.1-cygwin3.4.10-preview1` GitHub Pre-release；既有发布不覆盖，失败草稿不自动删除。Win7 实机与 NTFS 双用户隔离未验证，明确标为实验版本。构建使用只读权限，单独发布 Job 才使用 contents: write。对应源码缺失时禁止上传/发布二进制 ZIP，不以许可证专项审计替代对应源码义务。
 
 上次 Run 45201772287 在 Windows 原生 tar 解包 libpkgconf4-2.1.0-1.tar.zst 失败（146/183）。改用哈希校验后的独立离线安装目录和显式等待 Cygwin Setup，原生 Python 3.14 处理已固定的额外库覆盖；尚待实跑验证。
+
+## P0 安全要求（2026-11-24）
+
+默认配置仅监听并允许 127.0.0.1，`hosts deny = ALL`，共享只读、禁止 Guest 和空密码、账户须显式列入 `valid users`。使用者先配置明确的服务器接口及客户端 IP，交互执行 `smbpasswd` 设置独立账户密码；不在配置、命令行或脚本内保存明文。密码数据库与共享目录须隔离并受 NTFS ACL 保护；不得设置 `force user`、`admin users` 绕过身份隔离。默认 TCP 445，端口冲突应报告，不自动停系统服务。IPv6 需按实际可信地址显式开放并单独验证。
+
+预发布依赖同提交 Linux SMB2.1/3.1.1 功能对照：正确账户密码读写、错误密码拒绝、匿名拒绝、有效账户不在 valid users 时拒绝、真实不同来源 IP 拒绝，以及 Windows testparm 白名单语义检查。Linux 通过和 Windows testparm 通过不是 Windows 服务运行安全证明；实际 Cygwin 的认证、来源限制、NTFS 账户映射仍是目标平台 P0 测试，未验证前不能用于生产或真实私有数据。首版独立进程运行，start.cmd/stop.cmd 后续优先实现，不注册 Windows 服务；包体精简待首版后。
