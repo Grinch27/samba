@@ -52,7 +52,7 @@ timeout --kill-after=15s 8m ./configure \
   --without-gpgme --without-json --without-acl-support --without-libarchive \
   --without-regedit --without-winexe --without-systemd --without-ldb-lmdb --without-quotas \
   --disable-python --without-smb1-server --with-shared-modules='!vfs_snapper' \
-  --disable-wsp --disable-spotlight --without-libunwind --nonshared-binary=smbd/smbd \
+  --disable-wsp --disable-spotlight --without-libunwind --nonshared-binary="${SAMBA_NONSHARED_BINARIES:-smbd/smbd}" \
   2>&1 | tee "$output/configure.log" || configure_status=$?
 printf -- '- Waf configure exit code: `%d`.\n' "$configure_status" | tee -a "$summary"
 tail -n 36 "$output/configure.log" > "$output/configure-tail.txt"

@@ -37,3 +37,9 @@
 首版**完整测试 Artifact**必须有 `smbd.exe`、`testparm.exe`、`smbpasswd.exe` 及各 EXE 的递归依赖 DLL、`manifest.json`、`SHA256SUMS` 和使用说明。缺少工具或依赖时打包步骤直接失败。Windows 系统 DLL 不进入包；运行时动态加载模块、Win7 系统 API、双账户 NTFS 隔离和第三方许可证仍需实机及发布前核验。**未通过 Win7 实机验收前不生成正式 GitHub Release。**
 
 2026-11-23 的 Cygwin 3.4.10 构建 [Run 45181375098](https://github.com/Grinch27/samba/actions/runs/45181375098) 在归档校验后卡在 Windows 解包阶段，90 分钟后被取消。下一轮对归档逐项记录及设置超时，避免同类无诊断长时间占用 Runner。Linux 签名的 SMB 2.1、SMB 3.1.1 功能测试已在 [Run 45179337628](https://github.com/Grinch27/samba/actions/runs/45179337628) 通过。
+
+## 首版便携式预发布（2026-11-24）
+
+用户批准：Windows 7 SP1 x64 及以上独立 SMB 服务，不要求与 LanmanServer 同时运行；默认 TCP 445，冲突时报告，不自动停止系统服务。首版优先构建 ZIP，不制作 MSI/EXE 安装器，不安排 Win7 VM 验收。三个工具、递归 DLL、配置模板、隔离 PATH 启动、testparm、SHA256 和对应源码完整后，自动创建唯一 `v4.25.1-cygwin3.4.10-preview1` GitHub Pre-release；既有发布不覆盖，失败草稿不自动删除。Win7 实机与 NTFS 双用户隔离未验证，明确标为实验版本。构建使用只读权限，单独发布 Job 才使用 contents: write。对应源码缺失时禁止上传/发布二进制 ZIP，不以许可证专项审计替代对应源码义务。
+
+上次 Run 45201772287 在 Windows 原生 tar 解包 libpkgconf4-2.1.0-1.tar.zst 失败（146/183）。改用哈希校验后的独立离线安装目录和显式等待 Cygwin Setup，原生 Python 3.14 处理已固定的额外库覆盖；尚待实跑验证。

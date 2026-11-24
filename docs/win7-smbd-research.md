@@ -85,3 +85,7 @@ Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` �
 - 必须同时具备 `smbd.exe`、`testparm.exe`、`smbpasswd.exe`、递归 DLL 依赖和文件哈希清单，缺任意一项不得标记为完整包。
 - `cygcheck` 递归依赖扫描不保证检测按需加载的 DLL/VFS 模块；Win7 SP1 加载、用户权限和 NTFS 隔离未验收前只能上传实验 Artifact，不得创建正式 Release。
 - GitHub Actions Windows 历史 Cygwin 压缩包直接解包在 Run `45181375098` 超过 90 分钟仍未完成，后续先定位单包/解包工具阻塞并设置明确超时。
+
+## 2026-11-24 便携式预发布授权
+
+不要求 LanmanServer 共存；不自动停服务，不变更用户实机。首版 ZIP 便携包优先，Win7 VM 和双用户 NTFS 实机验收延后。完整三工具、DLL、配置、启动检查及精确对应源码通过后，自动创建 GitHub Pre-release，不再重复批准。专项许可证审计延后但对应源码和许可材料不能省略。发布 Job 单独权限，固定 preview1 标签，不覆盖已发布版本；失败草稿保留供后续诊断。

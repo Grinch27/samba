@@ -152,7 +152,15 @@ def main():
     if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[1] != "--download"):
         raise SystemExit("Usage: verify-cache.py [--download] <cache directory> [comma-separated packages]")
     download = len(sys.argv) == 4
-    cache = Path(sys.argv[2] if download else sys.argv[1]).resolve(strict=True)
+    cache = Path(sys.argv[2] if download else sys.argv[1]).resolve()
+    if download and not cache.exists():
+        path = cache / "historical" / "x86_64" / "setup.ini"
+        with urlopen(MIRROR + "x86_64/setup.xz", timeout=90) as response:
+            data = lzma.decompress(response.read())
+        if hashlib.sha256(data).hexdigest() != INDEX_SHA256:
+            raise ValueError("Historical index SHA-256 mismatch")
+        path.parent.mkdir(parents=True)
+        path.write_bytes(data)
     index, root = select_index(cache)
     if download:
         packages = read_records(index)

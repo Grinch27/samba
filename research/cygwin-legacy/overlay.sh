@@ -12,18 +12,6 @@ export PATH=/usr/bin:/bin
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
 output=$1
 mkdir -p -- "$output/packages"
-while IFS=$'\t' read -r url size checksum; do
-  [[ $url == \#* || -z $url ]] && continue
-  case "$url" in
-    */cygwin/cygwin-3.4.10-*|*/cygwin-devel/cygwin-devel-3.4.10-*) continue ;;
-  esac
-  archive="$output/packages/$(basename -- "$url")"
-  curl --fail --location --silent --show-error --retry 2 --max-time 90 \
-    --proto '=https' --proto-redir '=https' --output "$archive" "$url"
-  [[ $(wc -c < "$archive") -eq $size ]]
-  printf '%s  %s\n' "$checksum" "$archive" | sha512sum --check
-  tar -xf "$archive" -C /
-done < "$script_dir/packages.tsv"
 yapp=https://cpan.metacpan.org/authors/id/W/WR/WBRASWELL/Parse-Yapp-1.21.tar.gz
 checksum=3810e998308fba2e0f4f26043035032b027ce51ce5c8a52a8b8e340ca65f13e5
 curl --fail --location --silent --show-error --retry 2 --max-time 90 \

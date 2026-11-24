@@ -43,7 +43,7 @@ def executable_paths(source: Path) -> dict[str, Path]:
         raise ValueError(f"Samba build output not found: {bin_dir}")
     result = {}
     for name in BINARIES:
-        matches = sorted(p.resolve() for p in bin_dir.rglob(name) if p.is_file())
+        matches = sorted({p.resolve() for p in bin_dir.rglob(name) if p.is_file()})
         if len(matches) != 1:
             raise ValueError(f"Expected one {name}, found {len(matches)}: {matches}")
         result[name] = matches[0]
@@ -52,7 +52,7 @@ def executable_paths(source: Path) -> dict[str, Path]:
 
 def dependencies(cygcheck: Path, binary: Path, cygwin_root: Path, source: Path) -> tuple[set[Path], set[str]]:
     env = dict(os.environ)
-    env["PATH"] = os.pathsep.join((str(cygwin_root / "bin"), str(source / "bin"), env.get("PATH", "")))
+    env["PATH"] = os.pathsep.join((str(cygwin_root / "bin"), str(source / "bin"), str(Path(os.environ["SystemRoot"]) / "System32"), os.environ["SystemRoot"]))
     result = subprocess.run([str(cygcheck), str(binary)], capture_output=True, text=True,
                             errors="replace", env=env, timeout=90, check=False)
     if result.returncode != 0 or ERROR.search(result.stderr) or ERROR.search(result.stdout):
@@ -111,6 +111,7 @@ def create_package(source: Path, cygwin_root: Path, output: Path) -> dict:
         destination = bin_dir / file.name
         shutil.copy2(file, destination)
         manifest["files"].append({"path": f"bin/{file.name}", "sha256": digest,
+                                  "origin": "cygwin" if inside(file, cygwin_root) else "samba",
                                   "bytes": destination.stat().st_size})
     for name in BINARIES:
         if not (bin_dir / name).is_file():
@@ -120,13 +121,13 @@ def create_package(source: Path, cygwin_root: Path, output: Path) -> dict:
         "".join(f"{entry['sha256']}  {entry['path']}\n" for entry in manifest["files"]), encoding="utf-8")
     (output / "README.txt").write_text(
         "Samba 4.25.1 / Cygwin 3.4.10 x64 RESEARCH ARTIFACT\n"
-        "This is not an installer, verified Win7 runtime, or authorized Release.\n"
+        "This is an authorized experimental preview candidate, not a verified Win7 runtime or installer.\n"
         "Executables: bin/smbd.exe, bin/testparm.exe, bin/smbpasswd.exe\n"
         "SMB2_10..SMB3_11; NTLMv2 user authentication; mandatory signing.\n"
         "SMB3 encryption is negotiable and not mandatory (server smb encrypt = if_required).\n"
         "Windows system DLLs and dynamically loaded modules may require separate validation.\n"
-        "Do not deploy until Win7 service, NTFS access control, DLL/Win7 imports,\n"
-        "licensing and complete source distribution are reviewed.\n", encoding="utf-8")
+        "Use only for testing until Win7 service, NTFS access control and DLL/Win7 imports\n"
+        "are validated. Corresponding source is supplied as a separate ZIP.\n", encoding="utf-8")
     return manifest
 
 
