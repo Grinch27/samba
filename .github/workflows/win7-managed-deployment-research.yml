@@ -13,6 +13,7 @@ on:
       - .github/workflows/win7-managed-deployment-research.yml
       - deployment/smb.conf
       - deployment/smbusers
+      - research/cygwin-legacy/runtime-packages.py
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -135,11 +136,18 @@ jobs:
           '@
           & $bash --noprofile --norc -c ($command -replace "`r`n", "`n") 2>&1 | Tee-Object -FilePath $report -Append
           exit $LASTEXITCODE
+      - name: Identify runtime package providers
+        shell: pwsh
+        run: |
+          python research/cygwin-legacy/runtime-packages.py --manifest (Join-Path $env:RUNNER_TEMP 'compiled-samba/manifest.json') --historical (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --lock research/cygwin-legacy/packages.tsv --output (Join-Path $env:RUNNER_TEMP 'runtime-package-candidates.json')
+          exit $LASTEXITCODE
       - name: Save managed deployment evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: samba-managed-deployment-evidence
-          path: ${{ runner.temp }}/managed-identity.txt
+          path: |
+            ${{ runner.temp }}/managed-identity.txt
+            ${{ runner.temp }}/runtime-package-candidates.json
           if-no-files-found: warn
           retention-days: 1

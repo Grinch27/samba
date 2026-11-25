@@ -92,3 +92,9 @@ Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试�
 - 新入口 `.github/workflows/win7-managed-deployment-research.yml` 直接消费同一来源 Run 的两份 Artifact；支持手工指定来源或选择最新可用 main 编译产物。此阶段只在临时独立 Setup 根中装载已编译程序及正式统一配置、记录真实身份和编译路径，不创建账号、不注册服务、不修改系统权限、不发布。研究根使用完整历史工具链，不代表最终运行包满足无 Python。
 - 顶层工作流统一解析一次 Ubuntu x64 runner，向可复用的版本解析、依赖准备、Linux 对照传递同一标签。Linux 对照独立调度时自行解析。Windows 保持 windows-2022；不同 Run 之间不共享 runner 输出。
 - 后续审批边界：只在一次性 GitHub-hosted Windows Runner 内研究真实 SYSTEM 令牌、Cygwin 本地 SID/UID 映射与受限账户访问；执行涉及账号、服务或 ACL 的实验前单独确认授权，不把普通身份改为 UID 0，不删除 Samba 安全检查。正式安装包另行实现依赖闭包、Setup 原生包和升级卸载语义。
+
+### 正式配置解析通过（Run 45644608673）
+
+- 已在独立 Setup 研究根中通过四工具装载、Cygwin 3.4.10 身份取证及 deployment/smb.conf 的 testparm；明确 state/private/cache/lock/pid/ncalrpc 目录，保留 root 到 smbshare 映射及回环默认策略。
+- 当前真实 runneradmin UID 197108、SYSTEM UID 18，UID 0 尚无对应记录。账户初始化及真实 SMB 文件操作仍未通过，不执行未批准的系统身份或 ACL 修改。
+- 新增 runtime-packages.py，直接读取已保存的 DLL manifest 和同批已验证归档，仅对目标 DLL 匹配 SHA-256，输出运行时提供者及固定归档记录。输出 runtime-package-candidates.json 为 PE 递归导入的提供者集合，不代表完整 Setup 依赖闭包或 Win7 兼容。继续根据实际包元数据解析 Base/depends、动态加载和源码对应关系，不复制整个编译环境作为最终运行包。
