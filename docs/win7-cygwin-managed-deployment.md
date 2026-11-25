@@ -78,3 +78,10 @@ Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试�
 - Run 45527636638：官方签名索引与四个开发归档的字节数/SHA-512 全部通过；提交 e952b6652e361483cc7bf6ef915f2a7008f12fd6 只新增四条锁记录。
 - Run 45527685685：GnuTLS >= 3.6.13 检测通过，新的首个阻塞为 yapp not found；Cygwin 3.4.10 运行探针和 Linux 安全对照通过。
 - 提交 2b0fa593febf6c6c25d5aa8986aaefacd144da7a 安装已校验的 Parse-Yapp CLI；Run 45529148313 尚未完成，不能视为 Waf 配置或四工具已通过。
+
+### 首次四工具完整构建（2026-11-25）
+
+- Run [45531951407](https://github.com/Grinch27/samba/actions/runs/45531951407)，Windows Job 138929220907：Cygwin 3.4.10、Samba 4.25.1、上游 02e8e3f93f4af787bcb3389cbff9e22e74567eb2。Heimdal asn1_compile.exe 链接通过，smbd.exe 2376/2376、32m16.437s、版本命令通过；testparm.exe、smbpasswd.exe、smbcontrol.exe 链接通过（辅助工具 32.134s）。四工具 DLL 归集通过。
+- 旧研究配置 testparm 和白名单检查通过；本地账号初始化失败：smbpasswd -L can only be used by root. 这不是编译错误，不能删掉门禁或将 SMB 登录名 root 等同于 UID 0。诊断收集步骤也失败，正式源归档及 Release 未完成。
+- 后续编译独立保留一天的 samba-win7-compiled-inputs 中转 Artifact（四工具、递归 DLL、已有 manifest 和校验文件），仅用于 CI 部署研究，不是正式分发包；账号验收与对应源码门禁保持原样。之后优先研究 Setup 根下真实特权服务身份、Cygwin SID/UID 映射及受限 smbshare 账户，避免每次部署试验重新编译。
+- 官方 Cygwin 文档支持 files/db 账号解析及 SYSTEM 服务身份下的 S4U 切换：https://cygwin.com/cygwin-ug-net/ntsec.html 。具体 Cygwin 3.4.10 的身份行为尚待验证；不得伪造普通账户的 UID 0、放宽 NTFS ACL 或把网络登录 root 映射至 SYSTEM。
