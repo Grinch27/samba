@@ -11,6 +11,8 @@ on:
     branches: [main]
     paths:
       - .github/workflows/win7-managed-deployment-research.yml
+      - deployment/smb.conf
+      - deployment/smbusers
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -113,6 +115,9 @@ jobs:
           $command = @'
           set -e
           export PATH=/usr/bin:/bin
+          # Create only the new isolated runtime directories before testparm.
+          install -d -m 0755 /var/lib/samba /var/cache/samba /run/samba /var/log/samba
+          install -d -m 0700 /var/lib/samba/private /run/samba/ncalrpc
           uname -r
           id
           printf '\nCurrent identity:\n'
@@ -121,7 +126,7 @@ jobs:
           getent passwd 0 || true
           getent passwd 18 || true
           printf '\nSamba build paths:\n'
-          smbd -b
+          smbd -b | sed -n '/^Paths:/,/^System Headers:/p'
           smbd --version
           testparm --version
           smbcontrol --version
