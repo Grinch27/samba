@@ -67,8 +67,8 @@ Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试�
 - 默认独立安装根 `C:\Samba`；允许自定义本地 NTFS 安装根。默认共享目录为 `<安装根>\smb`，通过 Cygwin 根自然映射为 `/smb`，无需默认 fstab 条目。
 - 自定义外部共享路径时，仅修改该安装实例的 `/etc/fstab`。例如 `D:/Share /smb ntfs binary,posix=0,acl 0 0`；保留真实 ACL，不映射整个安装根或私有状态。实际路径及重解析点安全边界待测试。
 - 正式配置候选为 [deployment/smb.conf](../deployment/smb.conf)，安装为 `/etc/samba/smb.conf`。Docker、Ubuntu、Cygwin 使用相同原生语法与内容；仅平台路径映射和账户准备不同。不要引入配置转换器、`@PORTABLE_ROOT@` 或私有语法。旧 research 下配置与脚本仅用于原研究 Artifact，不属于正式部署模板。
-- 单个默认共享 `[smb]`，路径 `/smb`；不含 `[github]`。账户 `user` 为普通账户，需映射到真实受限 OS 身份；不启用 force user/group 或跳过 UID 权限检查。
-- 用户批准初始 Samba 密码为 `password`，仅首次初始化时使用，不预置或发布 passdb.tdb，不写入配置、日志或命令行；在用户交互更换初始密码前，不允许非回环监听/访问。该启动门禁尚未实现，不能将模板本身当作门禁。passwd.cmd 默认修改 user 的 Samba 密码，不同步 Windows 账户密码。升级不得重置密码或覆盖现有配置。
+- 单个默认共享 `[smb]`，路径 `/smb`；不含 `[github]`。默认客户端登录名为 `root`，通过标准 Samba `username map = /etc/samba/smbusers` 和 `smbshare = root` 映射到唯一受限系统账户 `smbshare`；`valid users = smbshare`，不将网络登录名映射到 UID 0、Administrator 或 LocalSystem，不启用 force user/group 或跳过 UID 权限检查。该映射仍需真实认证及权限验收；底层账户名也可能直接认证，但不代表第二个账户。映射文件由安装环境管理，与 smb.conf 一样三平台通用。
+- 用户批准初始 Samba 密码为 `password`，仅首次初始化时使用，不预置或发布 passdb.tdb，不写入配置、日志或命令行；在用户交互更换初始密码前，不允许非回环监听/访问。该启动门禁尚未实现，不能将模板本身当作门禁。passwd.cmd 默认修改 root 登录名对应的 smbshare Samba 密码，不同步 Windows 账户密码。升级不得重置密码或覆盖现有配置。
 - 卸载默认保留 `<安装根>\smb`、smb.conf、密码数据库；禁止递归删除安装根或跟随外部挂载删除数据。保留 private 目录所需的 ACL、相关持久状态及恢复路径。
 - 首版必须保证单账户安全稳定的文件操作、双栈白名单、禁止匿名、SMB2.1 至 SMB3.1.1、签名、基础 NTFS 权限和无 Python 运行依赖。多账户切换、高级 EA/DOS/streams_xattr 和性能功能采用有限研究；确证不兼容后通过 WIN7_COMPAT 注释记录实际原因，必要时显式设置禁用值（注释可能恢复启用的上游默认值）。不得降低安全门禁。
 - 正式 Setup 版本及哈希需固定，验证官方签名和 Win7 兼容边界；历史 Cygwin 3.4.10 仓库与构建依赖分离。真实目标机账户、ACL、Windows 服务、防火墙、LanmanServer 等操作仍需明确授权。

@@ -1,0 +1,4 @@
+# Standard Samba username map: local account = client login.
+# Install with administrator-only write access; smbshare must not be privileged.
+# Pending: verify authentication and mapped file access on all target platforms.
+smbshare = root
