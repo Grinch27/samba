@@ -1,0 +1,102 @@
+# Pending: live signature and archive verification on the runner.
+# Scope: exact four build-only packages; no runtime or release changes.
+# Risk: mirror drift; stop if the signed index no longer lists a pinned version.
+# Verification: isolated official keyring, exact version, size and SHA-512.
+name: Resolve GnuTLS development package locks
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/research-gnutls-lock.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify signed Cygwin index and exact archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          cd "$work"
+          export GNUPGHOME="$work/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          mirror=https://mirrors.kernel.org/sourceware/cygwin
+          curl --fail --silent --show-error --location --retry 2 --max-time 45 https://cygwin.com/key/pubring.asc -o pubring.asc
+          curl --fail --silent --show-error --location --retry 2 --max-time 45 "$mirror/x86_64/setup.xz" -o setup.xz
+          curl --fail --silent --show-error --location --retry 2 --max-time 45 "$mirror/x86_64/setup.xz.sig" -o setup.xz.sig
+          gpg --batch --import pubring.asc
+          gpg --batch --with-colons --fingerprint
+          gpg --batch --status-fd 1 --verify setup.xz.sig setup.xz
+          sha256sum setup.xz
+          python3 - "$mirror" <<'PY'
+          import hashlib
+          import lzma
+          from pathlib import PurePosixPath
+          import re
+          import sys
+          from urllib.request import urlopen
+
+          mirror = sys.argv[1]
+          wanted = {
+              "libnettle-devel": "4.0-1",
+              "libgmp-devel": "6.3.0-1",
+              "libidn2-devel": "2.3.8-1",
+              "libp11-kit-devel": "0.26.5-1",
+          }
+          selected = {}
+          package = version = None
+          stable = True
+          with lzma.open("setup.xz", "rt", encoding="utf-8") as index:
+              for raw in index:
+                  line = raw.rstrip()
+                  if line.startswith("@ "):
+                      package = line[2:]
+                      version = None
+                      stable = True
+                  elif line.startswith("[") and line.endswith("]"):
+                      stable = line in {"[curr]", "[prev]"}
+                      version = None
+                  elif line.startswith("version: "):
+                      version = line[9:]
+                  elif (stable and package in wanted
+                        and version == wanted[package]
+                        and line.startswith("install: ")):
+                      path, size, digest = line[9:].split()
+                      relative = PurePosixPath(path)
+                      expected = re.escape(f"{package}-{version}")
+                      if (relative.is_absolute() or ".." in relative.parts
+                          or relative.parts[:2] != ("x86_64", "release")
+                          or not re.fullmatch(expected + r"(?:-x86_64)?\.tar\.(?:xz|zst|bz2|gz)", relative.name)
+                          or not re.fullmatch(r"[0-9a-fA-F]{128}", digest)):
+                          raise ValueError(f"Unexpected archive metadata: {line}")
+                      record = (path, int(size), digest.lower())
+                      if package in selected and selected[package] != record:
+                          raise ValueError(f"Ambiguous metadata: {package}")
+                      selected[package] = record
+          if selected.keys() != wanted.keys():
+              raise ValueError(f"Missing pinned versions: {wanted.keys() - selected.keys()}")
+          rows = []
+          for package in wanted:
+              path, size, digest = selected[package]
+              url = f"{mirror}/{path}"
+              actual = hashlib.sha512()
+              length = 0
+              with urlopen(url, timeout=45) as response:
+                  while chunk := response.read(1024 * 1024):
+                      length += len(chunk)
+                      if length > size:
+                          raise ValueError(f"Unexpected archive size: {package}")
+                      actual.update(chunk)
+              if length != size or actual.hexdigest() != digest:
+                  raise ValueError(f"Archive integrity failed: {package}")
+              print(f"Verified {package}: {size} bytes")
+              rows.append(f"{url}\t{size}\t{digest}")
+          print("BEGIN_VERIFIED_TSV")
+          print("\n".join(rows))
+          print("END_VERIFIED_TSV")
+          PY
