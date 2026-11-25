@@ -1,0 +1,140 @@
+# 待确认：Cygwin 3.4.10 的真实 SYSTEM 身份映射及 Samba 权限切换。
+# 歧义：Server 2022 探针不等于 Win7 实机验收；此处仍用完整构建环境研究。
+# 后续研究：合法管理员身份、最小运行闭包、Setup 原生 samba-win7 包。
+# 潜在优化：直接复用同批编译与依赖 Artifact，避免重复 Waf 构建。
+# 风险：仅信任本仓库 main 的完整构建输入；不创建账号、不修改系统服务/ACL、不发布。
+# 验证重点：独立 Setup 根、四工具启动、正式配置解析及实际 SID/UID。
+name: Samba managed deployment research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/win7-managed-deployment-research.yml
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Existing legacy build Run ID (empty selects latest available main artifact)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  managed:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Select existing compiled inputs
+        id: source
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run_id }}
+        run: |
+          $repo = $env:GITHUB_REPOSITORY
+          $run = $env:SOURCE_RUN
+          if (-not $run) {
+            $response = gh api "repos/$repo/actions/artifacts?name=samba-win7-compiled-inputs&per_page=100"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $artifact = ($response | ConvertFrom-Json).artifacts |
+              Where-Object { -not $_.expired -and $_.workflow_run.head_branch -eq 'main' -and $_.workflow_run.repository_id -eq $_.workflow_run.head_repository_id } |
+              Sort-Object created_at -Descending | Select-Object -First 1
+            if (-not $artifact) { throw 'No available main compiled artifact; select a fresh build run' }
+            $run = [string]$artifact.workflow_run.id
+          }
+          if ($run -notmatch '^[0-9]+$') { throw 'Invalid source run ID' }
+          $meta = gh api "repos/$repo/actions/runs/$run" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $meta.head_branch -ne 'main' -or $meta.head_repository.id -ne $meta.repository.id -or $meta.path -notlike '.github/workflows/win7-cygwin-legacy-smbd.yml*') {
+            throw 'Source must be a legacy build from this repository main branch'
+          }
+          $artifacts = (gh api "repos/$repo/actions/runs/$run/artifacts" | ConvertFrom-Json).artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($name in @('samba-win7-compiled-inputs', 'cygwin-build-inputs')) {
+            if (-not ($artifacts | Where-Object { $_.name -eq $name -and -not $_.expired })) {
+              throw "Required artifact unavailable: $name in run $run"
+            }
+          }
+          "run_id=$run" >> $env:GITHUB_OUTPUT
+          Write-Host "Using existing build run $run ($($meta.head_sha)); no compilation"
+      - name: Preserve LF line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Retrieve compiled Samba
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: samba-win7-compiled-inputs
+          path: ${{ runner.temp }}/compiled-samba
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+      - name: Retrieve same-build Cygwin inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cygwin-build-inputs
+          path: ${{ runner.temp }}
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+      - name: Install independent Cygwin research root
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'Samba'
+          $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
+          $setup = Join-Path $env:RUNNER_TEMP 'setup-x86_64.exe'
+          $selected = (Get-Content (Join-Path $cache 'selected-packages.txt') -Raw).Trim()
+          $arguments = @('--quiet-mode', '--verbose', '--local-install', '--no-admin', '--no-verify', '--no-shortcuts', '--no-desktop', '--root', ('"{0}"' -f $root), '--local-package-dir', ('"{0}"' -f $cache), '--packages', $selected)
+          $process = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "Offline setup failed: $($process.ExitCode)" }
+          python research/cygwin-legacy/overlay-packages.py research/cygwin-legacy/packages.tsv (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --root $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $compiled = Join-Path $env:RUNNER_TEMP 'compiled-samba'
+          $manifest = Get-Content (Join-Path $compiled 'manifest.json') -Raw | ConvertFrom-Json
+          foreach ($entry in $manifest.files | Where-Object origin -eq 'samba') {
+            $name = Split-Path -Leaf $entry.path
+            Copy-Item -LiteralPath (Join-Path $compiled $entry.path) -Destination (Join-Path $root "bin/$name")
+          }
+          New-Item -ItemType Directory -Force (Join-Path $root 'etc/samba'), (Join-Path $root 'smb') | Out-Null
+          Copy-Item deployment/smb.conf, deployment/smbusers (Join-Path $root 'etc/samba')
+      - name: Record real account identity and load shared configuration
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'Samba'
+          $bash = Join-Path $root 'bin/bash.exe'
+          $report = Join-Path $env:RUNNER_TEMP 'managed-identity.txt'
+          whoami.exe /user | Tee-Object -FilePath $report
+          whoami.exe /priv | Tee-Object -FilePath $report -Append
+          $command = @'
+          set -e
+          export PATH=/usr/bin:/bin
+          uname -r
+          id
+          printf '\nCurrent identity:\n'
+          getent passwd "$(id -u)" || true
+          printf '\nUID 0 and SYSTEM UID 18:\n'
+          getent passwd 0 || true
+          getent passwd 18 || true
+          printf '\nSamba build paths:\n'
+          smbd -b
+          smbd --version
+          testparm --version
+          smbcontrol --version
+          printf '\nShared configuration:\n'
+          testparm -s /etc/samba/smb.conf
+          '@
+          & $bash --noprofile --norc -c ($command -replace "`r`n", "`n") 2>&1 | Tee-Object -FilePath $report -Append
+          exit $LASTEXITCODE
+      - name: Save managed deployment evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: samba-managed-deployment-evidence
+          path: ${{ runner.temp }}/managed-identity.txt
+          if-no-files-found: warn
+          retention-days: 1

@@ -85,3 +85,10 @@ Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试�
 - 旧研究配置 testparm 和白名单检查通过；本地账号初始化失败：smbpasswd -L can only be used by root. 这不是编译错误，不能删掉门禁或将 SMB 登录名 root 等同于 UID 0。诊断收集步骤也失败，正式源归档及 Release 未完成。
 - 后续编译独立保留一天的 samba-win7-compiled-inputs 中转 Artifact（四工具、递归 DLL、已有 manifest 和校验文件），仅用于 CI 部署研究，不是正式分发包；账号验收与对应源码门禁保持原样。之后优先研究 Setup 根下真实特权服务身份、Cygwin SID/UID 映射及受限 smbshare 账户，避免每次部署试验重新编译。
 - 官方 Cygwin 文档支持 files/db 账号解析及 SYSTEM 服务身份下的 S4U 切换：https://cygwin.com/cygwin-ug-net/ntsec.html 。具体 Cygwin 3.4.10 的身份行为尚待验证；不得伪造普通账户的 UID 0、放宽 NTFS ACL 或把网络登录 root 映射至 SYSTEM。
+
+### 独立部署研究与 Runner 复用（2026-11-25）
+
+- Run 45536576953 已提供可复用四工具 Artifact 14989511635 和同批依赖 Artifact 14986869154；均为一天中转产物。旧便携账户初始化仍因真实 UID 不为 0 失败，不以用户名 root 替代系统身份。
+- 新入口 `.github/workflows/win7-managed-deployment-research.yml` 直接消费同一来源 Run 的两份 Artifact；支持手工指定来源或选择最新可用 main 编译产物。此阶段只在临时独立 Setup 根中装载已编译程序及正式统一配置、记录真实身份和编译路径，不创建账号、不注册服务、不修改系统权限、不发布。研究根使用完整历史工具链，不代表最终运行包满足无 Python。
+- 顶层工作流统一解析一次 Ubuntu x64 runner，向可复用的版本解析、依赖准备、Linux 对照传递同一标签。Linux 对照独立调度时自行解析。Windows 保持 windows-2022；不同 Run 之间不共享 runner 输出。
+- 后续审批边界：只在一次性 GitHub-hosted Windows Runner 内研究真实 SYSTEM 令牌、Cygwin 本地 SID/UID 映射与受限账户访问；执行涉及账号、服务或 ACL 的实验前单独确认授权，不把普通身份改为 UID 0，不删除 Samba 安全检查。正式安装包另行实现依赖闭包、Setup 原生包和升级卸载语义。
