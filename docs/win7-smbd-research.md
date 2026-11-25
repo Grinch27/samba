@@ -97,3 +97,9 @@ Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` �
 ## 2026-11-25 账户管理与双栈默认拒绝
 
 采用同一个 smb.conf、包根目录环境变量 SAMBA_PORTABLE_ROOT 和 private/passdb.tdb。默认 IPv4/IPv6 回环，其他 IP 拒绝；每共享 valid users/write list，独立密码，禁止 Windows 密码同步。passwd.cmd 支持 add/change/disable/enable，start.cmd 前台运行。用户先自行建立 NTFS ACL 保护的 private 目录。Windows Runner 的独立临时数据库初始化必须成功后才允许发布；不得为绕过 Cygwin UID 0 检查而伪造身份或共享高权限账户。实际 Windows SMB 访问、双用户 NTFS ACL、stop.cmd 和服务注册仍待验证。
+
+## 后续版本、运行时与停止机制
+
+默认跟踪 Samba 官方最新稳定版本，单次解析锁定 tag/commit，版本变化必须重新通过补丁和安全门禁。现有 4.25.1 发布管线先保持不变。Cygwin Python 缺失诊断见 repair-python.py；只补齐已哈希校验的缺失构建包，不跳过 Samba 权限检查。IPv6 白名单测试同时要求实际允许 ::1、实际拒绝不同源地址，检查服务端拒绝日志。
+
+stop.cmd 候选优先使用同一配置的 smbcontrol smbd shutdown（额外工具），并验证当前包专用 PID、运行目录、进程身份及实际消息端点。不能仅靠进程名或裸 PID，不能 taskkill /IM smbd.exe。须先验证两实例互不影响、陈旧 PID 拒绝及正常停止；实现和发布待后续验证。UID 0 与 Windows SID 映射须依据真实访问令牌和 NTFS 双账户访问实测，不伪造 uid、禁用权限检查或使用共享高权限身份。

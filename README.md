@@ -57,3 +57,9 @@
 将便携包解压到受保护的本地 NTFS 目录。管理员必须先创建 `private` 子目录并审核 NTFS ACL，仅授予实际 Samba 运行/管理身份及必要系统管理员访问权限；整个程序目录及状态目录也应防止非授权修改。不可将这些目录纳入任何共享。`passwd.cmd add user1`、`passwd.cmd change user1`、`passwd.cmd disable user1`、`passwd.cmd enable user1`；密码交互输入，不传参。`start.cmd` 前台启动，同一包根目录和 `smb.conf`，在该控制台 Ctrl+C 停止。不自动改 ACL、防火墙、服务或 Windows 原生密码。独立 stop.cmd 需验证进程身份后再实现。
 
 通过 `%$(SAMBA_PORTABLE_ROOT)` 将 private、state、cache、lock、run、rpc 固定在便携包根下；不得直接运行 EXE 而缺失此环境变量。`smbpasswd -L` 的上游实现要求 UID 0；Windows 管理员不必然等价于 Cygwin UID 0，不绕过安全检查。构建 Job 使用独立临时数据库测试当前 Runner 用户的 Samba 密码初始化，不触及 Windows 账户密码且不打包测试数据库；失败则不发布。Linux 增加实际 IPv6 回环、IPv6 非白名单 testparm、第二账户独立密码和只读测试；仍不等于 Windows 实际访问控制或 Win7 兼容性验收。
+
+## 2026-11-25 后续研究路线
+
+Samba 跟踪官方最新稳定版（https://www.samba.org/samba/download/）；当前仍为 4.25.1。未来在单独版本解析 Job 获取稳定版本及 tag 对应 commit，单次 Run 锁定，Linux/Cygwin 共用；补丁、版本清单、对应源码及 Release 标签全部使用该锁定值。RC/alpha/beta 不参与，升级失败保留上一成功版本。当前发布管线尚未动态化；Cygwin 3.4.10 保持固定。
+
+离线 Setup 使用已校验依赖闭包的显式包名及 verbose solver 日志；若 Python 仍缺失，临时 Runner 从同一固定索引、已校验的 Python 依赖归档补齐未安装包，通过 Cygwin 自身 tar（不覆盖现有文件）及实际 Python 导入测试。该补齐路径不注册为安装器事务，不用于目标机安装。记录 Cygwin UID/GID，不修改账户映射。Linux 增加非白名单 IPv6 实际连接拒绝测试，只在 Runner 回环接口上使用临时 ULA 地址并清理。Windows UID/SID 权限问题仍须独立验证。

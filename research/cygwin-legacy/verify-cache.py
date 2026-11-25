@@ -70,8 +70,8 @@ def read_records(index):
     return packages
 
 
-def closure(packages, requested):
-    pending = [name for name, record in packages.items() if record["base"]]
+def closure(packages, requested, include_base=True):
+    pending = [name for name, record in packages.items() if include_base and record["base"]]
     pending.extend(requested)
     providers = {}
     for package, record in packages.items():
@@ -169,6 +169,19 @@ def main():
         with ThreadPoolExecutor(max_workers=6) as pool:
             list(pool.map(lambda record: fetch_one(record, root), archives))
     verify_archives(cache, root, index)
+    if download:
+        # Keep exact, verified archive paths for the offline installer diagnostics.
+        names = {record["install"][0]: name for name, record in packages.items()
+                 if record["install"] is not None}
+        requested = sorted(names[path] for path, _, _ in archives)
+        (cache / "selected-packages.txt").write_text(",".join(requested), encoding="utf-8")
+        python_archives = closure(packages, ["python39"], include_base=False)
+        if not any(names[path] == "python39" for path, _, _ in python_archives):
+            raise ValueError("Pinned Python runtime archive not selected")
+        (cache / "python-runtime.tsv").write_text(
+            "".join(f"{names[path]}\t{path}\t{size}\t{checksum}\n"
+                    for path, size, checksum in python_archives),
+            encoding="utf-8")
 
 
 if __name__ == "__main__":

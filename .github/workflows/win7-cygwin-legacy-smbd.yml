@@ -12,6 +12,7 @@ on:
     paths:
       - .github/workflows/win7-cygwin-legacy-smbd.yml
       - research/cygwin-legacy/verify-cache.py
+      - research/cygwin-legacy/repair-python.py
       - research/cygwin-legacy/package-smbd.py
       - research/cygwin-legacy/overlay-packages.py
       - research/cygwin-legacy/prepare-release.py
@@ -63,13 +64,14 @@ jobs:
           $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
           curl.exe --fail --location --silent --show-error --retry 2 --max-time 180 --output $setup 'https://cygwin.com/setup-x86_64.exe'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $arguments = @('--quiet-mode', '--local-install', '--no-admin', '--no-verify', '--no-shortcuts', '--no-desktop', '--root', ('"{0}"' -f $root), '--local-package-dir', ('"{0}"' -f $cache), '--packages', $env:CYGWIN_PACKAGES)
+          $selected = (Get-Content (Join-Path $cache 'selected-packages.txt') -Raw).Trim()
+          $arguments = @('--quiet-mode', '--verbose', '--local-install', '--no-admin', '--no-verify', '--no-shortcuts', '--no-desktop', '--root', ('"{0}"' -f $root), '--local-package-dir', ('"{0}"' -f $cache), '--packages', $selected)
           $process = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru -NoNewWindow
           Write-Host "Cygwin setup exit: $($process.ExitCode)"
           if ($process.ExitCode -ne 0) { throw "Offline setup failed" }
           $bash = Join-Path $root 'bin/bash.exe'
           if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) { throw "Offline setup did not install bash.exe" }
-          & $bash --noprofile --norc -c 'set -e; export PATH=/usr/bin:/bin; uname -r; gcc --version; python3 --version; perl -v'
+          & $bash --noprofile --norc -c 'set -e; export PATH=/usr/bin:/bin; uname -r; gcc --version; perl -v'
           if ($LASTEXITCODE -ne 0) { throw "Historical toolchain check failed" }
           $version = & $bash --noprofile --norc -c '/usr/bin/uname -r'
           if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3\.4\.10') { throw "Unexpected Cygwin version: $version" }
@@ -85,6 +87,20 @@ jobs:
               Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $evidence ("installer-" + $_.Name))
             }
           }
+      - name: Verify and recover historical Python
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
+          $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
+          $bash = Join-Path $root 'bin/bash.exe'
+          & $bash --noprofile --norc -c 'export PATH=/usr/bin:/bin; command -v python3; python3 -c "import ssl, ctypes, sqlite3, zlib, hashlib, multiprocessing"'
+          if ($LASTEXITCODE -ne 0) {
+            python research/cygwin-legacy/repair-python.py $root $cache
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          & $bash --noprofile --norc -c 'set -e; export PATH=/usr/bin:/bin; python3 --version; id -u; id -g; id -un; cygcheck -d cygwin python39'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Overlay pinned libraries without running Cygwin
         shell: pwsh
         timeout-minutes: 5
@@ -111,6 +127,8 @@ jobs:
           set -euo pipefail
           project=$(/usr/bin/cygpath -u "$GITHUB_WORKSPACE")
           evidence=$(/usr/bin/cygpath -u "$RUNNER_TEMP/smbd-legacy-evidence")
+          export PATH=/usr/bin:/bin
+          unset PKG_CONFIG_PATH PYTHONHOME PYTHONPATH
           export PERL5LIB="$evidence/Parse-Yapp-1.21/lib"
           export SAMBA_NONSHARED_BINARIES=smbd/smbd,testparm,smbpasswd
           /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$evidence/build"

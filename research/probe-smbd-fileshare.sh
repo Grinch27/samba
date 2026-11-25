@@ -25,7 +25,14 @@ sudo -n true
 scratch=$(mktemp -d)
 server_pid=
 relay_pid=
+relay6_pid=
+ipv6_added=false
+ipv6_source=fd00:5a6b:25::2
 cleanup() {
+  if [[ -n $relay6_pid ]]; then
+    kill -TERM "$relay6_pid" 2>/dev/null || true
+    wait "$relay6_pid" 2>/dev/null || true
+  fi
   if [[ -n $relay_pid ]]; then
     kill -TERM "$relay_pid" 2>/dev/null || true
     wait "$relay_pid" 2>/dev/null || true
@@ -33,6 +40,9 @@ cleanup() {
   if [[ -n $server_pid ]]; then
     kill -TERM "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
+  fi
+  if [[ $ipv6_added == true ]]; then
+    sudo -n ip -6 addr del "$ipv6_source/128" dev lo
   fi
   sudo -n rm -rf -- "$scratch"
 }
@@ -218,3 +228,27 @@ printf 'Distinct reader password and read-only share authorization: PASS\n' | te
 "$bin/testparm" -s "$config" outside 2001:db8::123 > "$evidence/ipv6-deny-config.txt" 2>&1
 grep -Fq 'Deny connection from outside (2001:db8::123) to data' "$evidence/ipv6-deny-config.txt"
 printf 'IPv6 loopback connection and non-allowlisted IPv6 configuration decision: PASS\n' | tee -a "$evidence/results.txt"
+
+# Runner-local IPv6 address: no external listener or route is introduced.
+sudo -n ip -6 addr add "$ipv6_source/128" dev lo nodad
+ipv6_added=true
+relay6_port=$((port + 20))
+socat "TCP4-LISTEN:$relay6_port,bind=127.0.0.1,reuseaddr,fork" \
+  "TCP6:[::1]:$port,bind=[$ipv6_source]" > "$evidence/relay6.log" 2>&1 &
+relay6_pid=$!
+for attempt in {1..10}; do
+  if ss -H -ltn "sport = :$relay6_port" | grep -q .; then
+    break
+  fi
+  kill -0 "$relay6_pid"
+  sleep 1
+done
+ss -H -ltn "sport = :$relay6_port" | grep -q .
+if "$bin/smbclient" //127.0.0.1/data --configfile="$config" --port="$relay6_port" \
+    --timeout=3 --client-protection=sign --max-protocol="$dialect" \
+    -A auth-good -c ls > "$evidence/ipv6-deny.txt" 2>&1; then
+  echo "Non-whitelisted IPv6 source accepted" >&2
+  exit 1
+fi
+grep -Ei "denied connection from.*$ipv6_source|connection denied.*$ipv6_source|$ipv6_source.*(denied|not allowed)" "$evidence/server.log"
+printf 'Non-whitelisted IPv6 source rejected by server: PASS\n' | tee -a "$evidence/results.txt"
