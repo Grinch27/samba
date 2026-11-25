@@ -1,0 +1,77 @@
+# 待确认：Ubuntu Runner 下载历史镜像的稳定性及 Artifact 传输耗时。
+# 歧义：当前 Setup 下载用于 CI，不代表正式安装器版本已锁定。
+# 后续研究：四工具成功后按实际运行依赖制作离线安装仓库。
+# 潜在优化：需要时再引入跨 Run 缓存。
+# 风险：禁止下载未锁定版本替代固定包；输入 Artifact 仅供同一次 Run 使用。
+# 验证重点：保留已有下载端 SHA-256/SHA-512，Windows 不重复读取全部文件校验。
+name: Prepare Cygwin build dependencies
+
+on:
+  workflow_call:
+    inputs:
+      probe:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CYGWIN_PACKAGES: bison,cygwin-devel,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,python39,rpcsvc-proto,zlib-devel,zstd
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Download fixed Cygwin overlay archives
+        shell: bash
+        env:
+          PROBE: ${{ inputs.probe }}
+        run: |
+          set -euo pipefail
+          inputs="$RUNNER_TEMP/cygwin-inputs"
+          args=()
+          if [[ $PROBE == true ]]; then
+            args+=(--include-core)
+          fi
+          python research/cygwin-legacy/overlay-packages.py research/cygwin-legacy/packages.tsv "$inputs/cygwin-overlay" "${args[@]}"
+      - name: Download historical toolchain and Parse-Yapp
+        if: ${{ !inputs.probe }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          inputs="$RUNNER_TEMP/cygwin-inputs"
+          python research/cygwin-legacy/verify-cache.py --download "$inputs/cygwin-cache" "$CYGWIN_PACKAGES"
+          curl --fail --location --silent --show-error --retry 2 --max-time 180 \
+            --proto '=https' --proto-redir '=https' --output "$inputs/setup-x86_64.exe" https://cygwin.com/setup-x86_64.exe
+          mkdir -p "$inputs/smbd-legacy-evidence"
+          archive="$inputs/smbd-legacy-evidence/Parse-Yapp-1.21.tar.gz"
+          curl --fail --location --silent --show-error --retry 2 --max-time 90 \
+            --proto '=https' --proto-redir '=https' --output "$archive" \
+            https://www.cpan.org/authors/id/W/WB/WBRASWELL/Parse-Yapp-1.21.tar.gz
+          printf '%s  %s\n' 3810e998308fba2e0f4f26043035032b027ce51ce5c8a52a8b8e340ca65f13e5 "$archive" | sha256sum --check
+      - name: Download fixed probe toolchain
+        if: inputs.probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/cygwin-inputs"
+          archive=llvm-mingw-20261104-msvcrt-x86_64.zip
+          curl --fail --location --silent --show-error --retry 2 --max-time 180 \
+            --proto '=https' --proto-redir '=https' --output "$archive" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/$archive"
+          printf '%s  %s\n' 6f9c316699759f088de26f5ca0e1df35c1d4e8ee3600f31229821c5717fd0d2b "$archive" | sha256sum --check
+      - name: Transfer verified build inputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cygwin-build-inputs
+          path: ${{ runner.temp }}/cygwin-inputs/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3

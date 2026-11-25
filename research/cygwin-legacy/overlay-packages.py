@@ -5,7 +5,7 @@
 # 潜在优化：成功冷构建后优化缓存。
 # 风险：必须校验历史索引、包和对应源码；不发布缺件产物。
 # 验证重点：三工具、DLL 来源、隔离启动和 ZIP 完整性。
-"""Install pinned overlay packages before starting any legacy Cygwin process."""
+"""Download pinned archives on Linux or extract prepared archives on Windows."""
 
 import argparse
 import hashlib
@@ -77,22 +77,26 @@ def member_filter(member, dest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("root", type=Path)
     parser.add_argument("packages", type=Path)
     parser.add_argument("cache", type=Path)
+    parser.add_argument("--root", type=Path, help="Extract prepared archives without downloading")
+    parser.add_argument("--include-core", action="store_true", help="Download core SDK archives for the probe")
     args = parser.parse_args()
     for line in args.packages.read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
             continue
         url, size, checksum = line.split("\t")
         name = url.rsplit("/", 1)[-1]
-        if name.startswith(("cygwin-3.4.10-", "cygwin-devel-3.4.10-")):
+        if not args.include_core and name.startswith(("cygwin-3.4.10-", "cygwin-devel-3.4.10-")):
             continue
         archive = args.cache / name
-        download(url, int(size), checksum, archive)
-        print(f"Overlay verified {name}", flush=True)
-        with tarfile.open(archive, "r:*") as source:
-            source.extractall(args.root, filter=member_filter)
+        if args.root is None:
+            download(url, int(size), checksum, archive)
+            print(f"Archive verified {name}", flush=True)
+        else:
+            print(f"Extracting prepared {name}", flush=True)
+            with tarfile.open(archive, "r:*") as source:
+                source.extractall(args.root, filter=member_filter)
 
 if __name__ == "__main__":
     main()

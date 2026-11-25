@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/win7-cygwin-legacy-probe.yml
+      - .github/workflows/prepare-cygwin-dependencies.yml
       - research/cygwin-legacy/**
   workflow_dispatch:
 
@@ -18,7 +19,15 @@ permissions:
   contents: read
 
 jobs:
+  dependencies:
+    uses: ./.github/workflows/prepare-cygwin-dependencies.yml
+    with:
+      probe: true
+    permissions:
+      contents: read
+
   legacy-runtime:
+    needs: dependencies
     name: Cygwin 3.4.10 on Windows Server 2022
     runs-on: windows-2022
     timeout-minutes: 15
@@ -30,27 +39,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install pinned LLVM-MinGW
+      - name: Retrieve prepared Cygwin build inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cygwin-build-inputs
+          path: ${{ runner.temp }}
+      - name: Extract prepared LLVM-MinGW
         shell: pwsh
         working-directory: ${{ runner.temp }}
         run: |
-          $archive = 'llvm-mingw-20261104-msvcrt-x86_64.zip'
-          $expected = '6f9c316699759f088de26f5ca0e1df35c1d4e8ee3600f31229821c5717fd0d2b'
-          curl.exe --fail --location --silent --show-error --retry 2 --max-time 180 `
-            --proto '=https' --proto-redir '=https' --output $archive `
-            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/$archive"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expected) {
-            throw 'LLVM-MinGW SHA-256 mismatch'
-          }
-          tar.exe -xf $archive
+          tar.exe -xf llvm-mingw-20261104-msvcrt-x86_64.zip
           exit $LASTEXITCODE
       - name: Build probes using the Cygwin 3.4.10 SDK
         shell: bash
         run: |
           work=$(cygpath -u "$RUNNER_TEMP")
           bash research/cygwin-legacy/build.sh \
-            "$work/llvm-mingw-20261104-msvcrt-x86_64" "$work/cygwin-legacy-probe"
+            "$work/llvm-mingw-20261104-msvcrt-x86_64" "$work/cygwin-legacy-probe" "$work/cygwin-overlay"
       - name: Measure the legacy runtime
         shell: pwsh
         timeout-minutes: 2

@@ -12,6 +12,7 @@ on:
     paths:
       - .github/workflows/win7-cygwin-legacy-smbd.yml
       - .github/workflows/resolve-samba-stable.yml
+      - .github/workflows/prepare-cygwin-dependencies.yml
       - research/cygwin-legacy/verify-cache.py
       - research/cygwin-legacy/repair-python.py
       - research/cygwin-legacy/package-smbd.py
@@ -37,15 +38,19 @@ jobs:
     permissions:
       contents: read
 
+  dependencies:
+    uses: ./.github/workflows/prepare-cygwin-dependencies.yml
+    permissions:
+      contents: read
+
   legacy-smbd:
-    needs: resolve
+    needs: [resolve, dependencies]
     name: Samba ${{ needs.resolve.outputs.version }} on Cygwin 3.4.10 x64
     runs-on: windows-2022
     timeout-minutes: 120
     env:
       SAMBA_VERSION: ${{ needs.resolve.outputs.version }}
       SAMBA_COMMIT: ${{ needs.resolve.outputs.commit }}
-      CYGWIN_PACKAGES: bison,cygwin-devel,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,python39,rpcsvc-proto,zlib-devel,zstd
     steps:
       - name: Preserve LF line endings
         shell: pwsh
@@ -58,12 +63,11 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
-      - name: Download and verify pinned historical packages
-        shell: pwsh
-        timeout-minutes: 10
-        run: |
-          python research/cygwin-legacy/verify-cache.py --download (Join-Path $env:RUNNER_TEMP 'cygwin-cache') $env:CYGWIN_PACKAGES
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retrieve prepared Cygwin build inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cygwin-build-inputs
+          path: ${{ runner.temp }}
       - name: Install verified historical Cygwin packages offline
         shell: pwsh
         timeout-minutes: 15
@@ -71,8 +75,6 @@ jobs:
           $setup = Join-Path $env:RUNNER_TEMP 'setup-x86_64.exe'
           $root = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10'
           $cache = Join-Path $env:RUNNER_TEMP 'cygwin-cache'
-          curl.exe --fail --location --silent --show-error --retry 2 --max-time 180 --output $setup 'https://cygwin.com/setup-x86_64.exe'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $selected = (Get-Content (Join-Path $cache 'selected-packages.txt') -Raw).Trim()
           $arguments = @('--quiet-mode', '--verbose', '--local-install', '--no-admin', '--no-verify', '--no-shortcuts', '--no-desktop', '--root', ('"{0}"' -f $root), '--local-package-dir', ('"{0}"' -f $cache), '--packages', $selected)
           $process = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru -NoNewWindow
@@ -114,7 +116,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: |
-          python research/cygwin-legacy/overlay-packages.py (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10') research/cygwin-legacy/packages.tsv (Join-Path $env:RUNNER_TEMP 'cygwin-overlay')
+          python research/cygwin-legacy/overlay-packages.py research/cygwin-legacy/packages.tsv (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --root (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Prepare pinned Parse Yapp
         shell: pwsh

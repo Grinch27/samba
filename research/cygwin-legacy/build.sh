@@ -7,8 +7,8 @@
 # 验证重点：固定依赖哈希，使用 3.4.10 头文件与启动对象构建探针。
 set -euo pipefail
 
-if [[ $# != 2 ]]; then
-  printf 'Usage: %s <LLVM-MinGW root> <new output directory>\n' "$0" >&2
+if [[ $# != 3 ]]; then
+  printf 'Usage: %s <LLVM-MinGW root> <new output directory> <prepared archive directory>\n' "$0" >&2
   exit 2
 fi
 
@@ -16,44 +16,13 @@ probe_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
 toolchain=$(cd -- "$1" && pwd -P)
 mkdir -- "$2"
 output=$(cd -- "$2" && pwd -P)
-mkdir -- "$output/packages" "$output/sysroot" "$output/runtime"
+archives=$(cd -- "$3" && pwd -P)
+mkdir -- "$output/sysroot" "$output/runtime"
 
-primary=https://mirrors.kernel.org/sourceware/cygwin/
-mirrors=("$primary" https://gcc.gnu.org/ftp/cygwin/ https://mirrors.mit.edu/cygwin/)
-
+# The Ubuntu dependency job verifies every archive before transfer.
 while IFS=$'\t' read -r url size digest; do
   [[ $url == \#* || -z $url ]] && continue
-  archive="$output/packages/${url##*/}"
-  sources=("$url")
-  if [[ $url == "$primary"* ]]; then
-    sources=()
-    for mirror in "${mirrors[@]}"; do
-      sources+=("$mirror${url#"$primary"}")
-    done
-  fi
-  downloaded=false
-  for source in "${sources[@]}"; do
-    printf 'Downloading %s\n' "$source"
-    if curl --fail --location --silent --show-error --connect-timeout 15 --max-time 45 \
-      --proto '=https' --proto-redir '=https' --output "$archive.part" "$source"; then
-      mv -- "$archive.part" "$archive"
-      downloaded=true
-      break
-    fi
-    rm -f -- "$archive.part"
-  done
-  [[ $downloaded == true ]] || exit 1
-  test "$(wc -c < "$archive")" -eq "$size"
-  printf '%s  %s\n' "$digest" "$archive" | sha512sum --check
-  if [[ $url == "$primary"* ]]; then
-    preferred=${source%"${url#"$primary"}"}
-    remaining=()
-    for mirror in "${mirrors[@]}"; do
-      [[ $mirror == "$preferred" ]] || remaining+=("$mirror")
-    done
-    mirrors=("$preferred" "${remaining[@]}")
-  fi
-  tar --exclude=usr/lib/libg.a -xf "$archive" -C "$output/sysroot"
+  tar --exclude=usr/lib/libg.a -xf "$archives/${url##*/}" -C "$output/sysroot"
 done < "$probe_dir/packages.tsv"
 
 sysroot="$output/sysroot/usr"

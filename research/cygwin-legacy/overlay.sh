@@ -9,14 +9,8 @@ set -euo pipefail
 
 [[ $# == 1 ]] || { echo "Usage: $0 <evidence directory>" >&2; exit 2; }
 export PATH=/usr/bin:/bin
-script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
 output=$1
-mkdir -p -- "$output/packages"
-yapp=https://www.cpan.org/authors/id/W/WB/WBRASWELL/Parse-Yapp-1.21.tar.gz
-checksum=3810e998308fba2e0f4f26043035032b027ce51ce5c8a52a8b8e340ca65f13e5
-curl --fail --location --silent --show-error --retry 2 --max-time 90 \
-  --proto '=https' --proto-redir '=https' --output "$output/Parse-Yapp-1.21.tar.gz" "$yapp"
-printf '%s  %s\n' "$checksum" "$output/Parse-Yapp-1.21.tar.gz" | sha256sum --check
+# The archive is downloaded and verified by the Ubuntu dependency job.
 tar -xf "$output/Parse-Yapp-1.21.tar.gz" -C "$output"
 PERL5LIB="$output/Parse-Yapp-1.21/lib" perl -MParse::Yapp -e 'print "Parse::Yapp available\n"'
 # Waf needs the CLI in its restricted PATH, not just the Perl module.
