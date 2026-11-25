@@ -40,6 +40,13 @@ trap cleanup EXIT
 cd -- "$scratch"
 umask 077
 mkdir share private state cache lock pid rpc
+# Allow traversal of the test-only share by a distinct existing unprivileged user.
+chmod 0711 "$scratch"
+chmod 0755 "$scratch/share"
+export SAMBA_PORTABLE_ROOT="$scratch"
+reader=nobody
+id "$reader" >/dev/null
+test "$reader" != "$(id -un)"
 config="$scratch/smb.conf"
 user=$(id -un)
 port=14456
@@ -53,12 +60,12 @@ security = user
 passdb backend = tdbsam
 map to guest = Never
 null passwords = no
-hosts allow = 127.0.0.1
+hosts allow = 127.0.0.1 ::1
 hosts deny = ALL
 hostname lookups = no
 ntlm auth = ntlmv2-only
 server smb encrypt = if_required
-interfaces = 127.0.0.1/8
+interfaces = 127.0.0.1/8 ::1
 bind interfaces only = yes
 smb ports = $port
 disable netbios = yes
@@ -69,7 +76,7 @@ server multi channel support = no
 rpc start on demand helpers = no
 load printers = no
 disable spoolss = yes
-private dir = $scratch/private
+private dir = %\$(SAMBA_PORTABLE_ROOT)/private
 state directory = $scratch/state
 cache directory = $scratch/cache
 lock directory = $scratch/lock
@@ -78,8 +85,9 @@ ncalrpc dir = $scratch/rpc
 
 [data]
 path = $scratch/share
-valid users = $user
-read only = no
+valid users = $user $reader
+read only = yes
+write list = $user
 guest ok = no
 
 [blocked]
@@ -92,12 +100,17 @@ EOF
 "$bin/smbd" --version | tee "$evidence/version.txt"
 "$bin/testparm" -s "$config" > "$evidence/testparm.txt" 2>&1
 secret=$(openssl rand -hex 20)
-printf '%s\n%s\n' "$secret" "$secret" | sudo -n "$bin/smbpasswd" -s -a -c "$config" "$user"
+printf '%s\n%s\n' "$secret" "$secret" | sudo -n --preserve-env=SAMBA_PORTABLE_ROOT "$bin/smbpasswd" -s -a -c "$config" "$user"
 printf 'username = %s\npassword = %s\n' "$user" "$secret" > auth-good
 printf 'username = %s\npassword = wrong-%s\n' "$user" "$secret" > auth-bad
-unset secret
+reader_secret=$(openssl rand -hex 20)
+printf '%s\n%s\n' "$reader_secret" "$reader_secret" | sudo -n --preserve-env=SAMBA_PORTABLE_ROOT "$bin/smbpasswd" -s -a -c "$config" "$reader"
+printf 'username = %s\npassword = %s\n' "$reader" "$reader_secret" > auth-reader
+printf 'username = %s\npassword = %s\n' "$reader" "$secret" > auth-reader-wrong
+unset secret reader_secret
+sudo -n test -f "$scratch/private/passdb.tdb"
 
-sudo -n timeout --kill-after=5s 85s "$bin/smbd" --foreground --no-process-group \
+sudo -n --preserve-env=SAMBA_PORTABLE_ROOT timeout --kill-after=5s 85s "$bin/smbd" --foreground --no-process-group \
   --debug-stdout --configfile="$config" > "$evidence/server.log" 2>&1 &
 server_pid=$!
 
@@ -180,3 +193,28 @@ if "$bin/smbclient" //127.0.0.1/blocked --configfile="$config" --port="$port" \
 fi
 grep -Fq NT_STATUS_ACCESS_DENIED "$evidence/user-deny.txt"
 printf 'Authenticated but unauthorized account rejected: PASS\n' | tee -a "$evidence/results.txt"
+
+# Read-only account: distinct valid credentials, actual successful read, denied write.
+printf 'read-only proof\n' > "$scratch/share/read-proof.txt"
+chmod 0644 "$scratch/share/read-proof.txt"
+client -A auth-reader -c 'get read-proof.txt reader-copy.txt' > "$evidence/reader-read.txt" 2>&1
+cmp "$scratch/share/read-proof.txt" reader-copy.txt
+if client -A auth-reader -c 'put upload.bin reader-write.bin' > "$evidence/reader-write.txt" 2>&1; then
+  echo "Read-only account unexpectedly wrote a file" >&2
+  exit 1
+fi
+grep -Fq NT_STATUS_ACCESS_DENIED "$evidence/reader-write.txt"
+test ! -e "$scratch/share/reader-write.bin"
+if client -A auth-reader-wrong -c ls > "$evidence/reader-wrong.txt" 2>&1; then
+  echo "Writer password accepted for distinct reader account" >&2
+  exit 1
+fi
+grep -Fq NT_STATUS_LOGON_FAILURE "$evidence/reader-wrong.txt"
+printf 'Distinct reader password and read-only share authorization: PASS\n' | tee -a "$evidence/results.txt"
+
+"$bin/smbclient" //localhost/data -I ::1 --configfile="$config" --port="$port" \
+  --timeout=3 --client-protection=sign --max-protocol="$dialect" \
+  -A auth-good -c ls > "$evidence/ipv6-allow.txt" 2>&1
+"$bin/testparm" -s "$config" outside 2001:db8::123 > "$evidence/ipv6-deny-config.txt" 2>&1
+grep -Fq 'Deny connection from outside (2001:db8::123) to data' "$evidence/ipv6-deny-config.txt"
+printf 'IPv6 loopback connection and non-allowlisted IPv6 configuration decision: PASS\n' | tee -a "$evidence/results.txt"

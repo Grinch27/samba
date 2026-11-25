@@ -93,3 +93,7 @@ Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` �
 ## P0 IP 与身份访问控制
 
 默认仅回环、全局 IP 白名单、默认拒绝、禁止空密码/匿名、每共享 valid users 和只读默认，用户通过 smbpasswd 交互创建独立凭据。预发布门禁增加 Linux 正反向测试和 Windows testparm 白名单检查；Windows 真实认证、实际 IP 拒绝与 NTFS ACL 尚未验证，不得声称安全可用。首版不注册 Windows 服务、不自动修改防火墙或停 LanmanServer。start.cmd/stop.cmd 应以明确配置及所属进程身份为边界，禁止按进程名无差别终止。后续实际 Windows 测试优先于体积优化。
+
+## 2026-11-25 账户管理与双栈默认拒绝
+
+采用同一个 smb.conf、包根目录环境变量 SAMBA_PORTABLE_ROOT 和 private/passdb.tdb。默认 IPv4/IPv6 回环，其他 IP 拒绝；每共享 valid users/write list，独立密码，禁止 Windows 密码同步。passwd.cmd 支持 add/change/disable/enable，start.cmd 前台运行。用户先自行建立 NTFS ACL 保护的 private 目录。Windows Runner 的独立临时数据库初始化必须成功后才允许发布；不得为绕过 Cygwin UID 0 检查而伪造身份或共享高权限账户。实际 Windows SMB 访问、双用户 NTFS ACL、stop.cmd 和服务注册仍待验证。

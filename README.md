@@ -49,3 +49,11 @@
 默认配置仅监听并允许 127.0.0.1，`hosts deny = ALL`，共享只读、禁止 Guest 和空密码、账户须显式列入 `valid users`。使用者先配置明确的服务器接口及客户端 IP，交互执行 `smbpasswd` 设置独立账户密码；不在配置、命令行或脚本内保存明文。密码数据库与共享目录须隔离并受 NTFS ACL 保护；不得设置 `force user`、`admin users` 绕过身份隔离。默认 TCP 445，端口冲突应报告，不自动停系统服务。IPv6 需按实际可信地址显式开放并单独验证。
 
 预发布依赖同提交 Linux SMB2.1/3.1.1 功能对照：正确账户密码读写、错误密码拒绝、匿名拒绝、有效账户不在 valid users 时拒绝、真实不同来源 IP 拒绝，以及 Windows testparm 白名单语义检查。Linux 通过和 Windows testparm 通过不是 Windows 服务运行安全证明；实际 Cygwin 的认证、来源限制、NTFS 账户映射仍是目标平台 P0 测试，未验证前不能用于生产或真实私有数据。首版独立进程运行，start.cmd/stop.cmd 后续优先实现，不注册 Windows 服务；包体精简待首版后。
+
+## 便携式账户管理（2026-11-25）
+
+默认仅监听 IPv4/IPv6 回环 `127.0.0.1 ::1`；`hosts allow` 明确列举可信客户端，`hosts deny = ALL` 拒绝其他来源。每共享 `valid users` 独立限制身份，`read only = yes`，`write list` 明确授权写入者。分别为已存在且能被 Cygwin 解析的 Windows 本地用户设置 Samba 独立密码，禁止空密码及匿名；`unix password sync = no`。
+
+将便携包解压到受保护的本地 NTFS 目录。管理员必须先创建 `private` 子目录并审核 NTFS ACL，仅授予实际 Samba 运行/管理身份及必要系统管理员访问权限；整个程序目录及状态目录也应防止非授权修改。不可将这些目录纳入任何共享。`passwd.cmd add user1`、`passwd.cmd change user1`、`passwd.cmd disable user1`、`passwd.cmd enable user1`；密码交互输入，不传参。`start.cmd` 前台启动，同一包根目录和 `smb.conf`，在该控制台 Ctrl+C 停止。不自动改 ACL、防火墙、服务或 Windows 原生密码。独立 stop.cmd 需验证进程身份后再实现。
+
+通过 `%$(SAMBA_PORTABLE_ROOT)` 将 private、state、cache、lock、run、rpc 固定在便携包根下；不得直接运行 EXE 而缺失此环境变量。`smbpasswd -L` 的上游实现要求 UID 0；Windows 管理员不必然等价于 Cygwin UID 0，不绕过安全检查。构建 Job 使用独立临时数据库测试当前 Runner 用户的 Samba 密码初始化，不触及 Windows 账户密码且不打包测试数据库；失败则不发布。Linux 增加实际 IPv6 回环、IPv6 非白名单 testparm、第二账户独立密码和只读测试；仍不等于 Windows 实际访问控制或 Win7 兼容性验收。
