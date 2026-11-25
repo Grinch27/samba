@@ -9,6 +9,9 @@ name: Prepare Cygwin build dependencies
 on:
   workflow_call:
     inputs:
+      runner_image:
+        type: string
+        required: true
       probe:
         type: boolean
         default: false
@@ -17,19 +20,8 @@ permissions:
   contents: read
 
 jobs:
-  runner-image:
-    name: ubuntu-latest - runner-image
-    runs-on: ubuntu-latest
-    outputs:
-      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
-    steps:
-      - name: Resolve runner-image
-        id: resolve-runner-image
-        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
-
   prepare:
-    needs: runner-image
-    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
+    runs-on: ${{ inputs.runner_image }}
     timeout-minutes: 20
     env:
       CYGWIN_PACKAGES: bison,cygwin-devel,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,python39,rpcsvc-proto,zlib-devel,zstd

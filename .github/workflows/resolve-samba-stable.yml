@@ -8,6 +8,9 @@ name: Resolve Samba stable source
 on:
   workflow_call:
     inputs:
+      runner_image:
+        type: string
+        required: true
       version:
         type: string
         default: ''
@@ -23,7 +26,7 @@ permissions:
   contents: read
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner_image }}
     timeout-minutes: 5
     outputs:
       version: ${{ steps.source.outputs.version }}

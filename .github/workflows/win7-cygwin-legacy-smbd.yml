@@ -33,13 +33,29 @@ permissions:
   contents: read
 
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
   resolve:
+    needs: runner-image
     uses: ./.github/workflows/resolve-samba-stable.yml
+    with:
+      runner_image: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     permissions:
       contents: read
 
   dependencies:
+    needs: runner-image
     uses: ./.github/workflows/prepare-cygwin-dependencies.yml
+    with:
+      runner_image: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     permissions:
       contents: read
 
@@ -252,9 +268,10 @@ jobs:
 
   access-control:
     name: Verify SMB access-control reference
-    needs: resolve
+    needs: [runner-image, resolve]
     uses: ./.github/workflows/samba-fileshare-control.yml
     with:
+      runner_image: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
       version: ${{ needs.resolve.outputs.version }}
       commit: ${{ needs.resolve.outputs.commit }}
     permissions:

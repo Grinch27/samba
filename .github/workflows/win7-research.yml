@@ -18,9 +18,20 @@ permissions:
   contents: read
 
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
   cross-configure:
+    needs: runner-image
     name: Samba configure probe (${{ matrix.target }})
-    runs-on: ubuntu-24.04
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
