@@ -1,5 +1,7 @@
 # Samba Win7 服务端构建研究
 
+**当前正式路线：** 独立 Cygwin 3.4.10 Setup 离线安装，默认 `C:\Samba`，共享 `/smb`，默认单账户 `user`。统一配置候选见 [deployment/smb.conf](deployment/smb.conf)，最新规范见 [管理式部署研究](docs/win7-cygwin-managed-deployment.md#首版正式规范统一配置单账户和安装根2026-11-25)。以下旧便携路线与多账户记录为研究历史，非现行部署说明。尚未完成正式安装包与运行验收。
+
 目标是在 Windows 7 上运行 Samba 独立文件服务器 `smbd.exe`，将 Win7 本机目录共享给局域网客户端。以 Samba 4.25.1 和 Win7 SP1 x64 为首轮研究基线，借鉴 Notepad++ 固定构建输入、检查 Windows 产物并单独验证运行的做法。
 
 ## 当前结果
