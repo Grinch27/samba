@@ -13,34 +13,44 @@ from http.client import IncompleteRead
 import posixpath
 from pathlib import Path, PurePosixPath
 import tarfile
-from time import sleep
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 from urllib.request import urlopen
+
+MIRRORS = [
+    "https://mirrors.kernel.org/sourceware/cygwin/",
+    "https://gcc.gnu.org/ftp/cygwin/",
+    "https://mirrors.mit.edu/cygwin/",
+]
+PRIMARY = MIRRORS[0]
+
 
 def download(url, size, checksum, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_suffix(destination.suffix + ".part")
-    for attempt in range(1, 4):
-        print(f"Downloading {destination.name} (attempt {attempt}/3)", flush=True)
+    relative = url.removeprefix(PRIMARY)
+    candidates = list(MIRRORS) if url.startswith(PRIMARY) else [None, None, None]
+    for index, mirror in enumerate(candidates):
+        source = mirror + relative if mirror else url
+        print(f"Downloading {source}", flush=True)
         try:
-            with urlopen(url, timeout=90) as response, partial.open("wb") as out:
+            with urlopen(source, timeout=45) as response, partial.open("wb") as out:
                 while chunk := response.read(1024 * 1024):
                     out.write(chunk)
         except (URLError, TimeoutError, ConnectionError, IncompleteRead) as error:
             partial.unlink(missing_ok=True)
-            if isinstance(error, HTTPError) and error.code not in {408, 429, 500, 502, 503, 504}:
+            if index == len(candidates) - 1:
                 raise
-            if attempt == 3:
-                raise
-            print(f"Retrying {destination.name}: {error}", flush=True)
-            sleep(attempt * 2)
+            print(f"Download failed: {error}; trying next source", flush=True)
             continue
         with partial.open("rb") as stream:
             actual = hashlib.file_digest(stream, "sha512").hexdigest()
         if partial.stat().st_size != size or actual != checksum:
             partial.unlink(missing_ok=True)
-            raise ValueError(f"Archive integrity failed: {url}")
+            raise ValueError(f"Archive integrity failed: {source}")
         partial.replace(destination)
+        if mirror:
+            MIRRORS.remove(mirror)
+            MIRRORS.insert(0, mirror)
         return
 
 def mapped(name):
