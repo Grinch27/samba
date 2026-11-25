@@ -47,6 +47,24 @@ printf -- '- VFS portability patch: `cygwin-vfs-compat.patch`.\n' | tee -a "$sum
 export PYTHONUNBUFFERED=1
 export WAF_NO_PREFORK=1
 
+# Preserve the package metadata and linker probe before Waf configuration.
+# A failing diagnostic is evidence, not a replacement for Waf's own checks.
+{
+  printf 'pkg-config path: '
+  pkg-config --variable=pc_path pkg-config
+  printf '\nGnuTLS metadata:\n'
+  pkg-config --print-errors --modversion gnutls
+  pkg-config --print-errors --cflags --libs gnutls
+  pkg-config --print-errors --static --libs gnutls
+  printf '\nGnuTLS package config locations:\n'
+  find /usr/lib /usr/share/pkgconfig -name gnutls.pc -print 2>/dev/null
+  printf '\nGnuTLS headers and import libraries:\n'
+  ls -l /usr/include/gnutls/gnutls.h /usr/lib/libgnutls.dll.a /usr/bin/cyggnutls-30.dll
+  printf '\nGnuTLS DLL dependencies:\n'
+  cygcheck /usr/bin/cyggnutls-30.dll
+} > "$output/gnutls-probe.txt" 2>&1 || true
+cat "$output/gnutls-probe.txt"
+
 configure_status=0
 # Cygwin 的 quotactl 探针通过，但其 dqblk 结构没有 dqb_curblocks。
 timeout --kill-after=15s 8m ./configure \

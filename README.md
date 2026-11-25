@@ -71,3 +71,5 @@ Samba 跟踪官方最新稳定版（https://www.samba.org/samba/download/）；�
 已从 Run 45398538598 的 Artifact 14924519512 检查 smbd-dlls.txt：现代 Cygwin 3.6.12 的 smbd.exe 递归依赖 16 个非系统 DLL（cygwin1、cygcrypt-2、cyggnutls-30、cyggmp-10、cyghogweed-7、cygnettle-9、cygidn2-0、cygiconv-2、cygintl-8、cygp11-kit-0、cyggcc_s-seh-1、cygffi-8、cygtasn1-6、cygunistring-5、cygpopt-0、cygz）及 KERNEL32/ntdll/KERNELBASE。不是 Win7 的最终清单；目标机不应安装编译器、Python、Perl 或完整开发工具。是否需要额外系统更新、cygserver、账户映射文件或动态模块取决于最终目标平台测试。
 
 Run 45523425534 实际补齐 Python 3.9.16 并通过导入测试，随后错误的 cygcheck -d 命令失败；已改为 -c -d。实际 Runner UID=197108、GID=197121，未证明 UID 0 账户管理可用。Linux 对照发现 private dir 不展开环境变量，已改为明确路径。部署时必须将 smb.conf 所有 @PORTABLE_ROOT@ 替换为实际 /cygdrive/盘符/目录，保持一个配置和受保护的 private 目录；启动和密码管理入口检查 private dir。Windows 构建使用独立临时配置，不将测试数据库或临时路径打入 ZIP。新代码尚待 Actions 实测。
+
+正式部署路线已冻结为独立 Cygwin 3.4.10 Setup 管理式离线 ZIP，Samba 自定义包；旧 DLL ZIP 仅保留研究 Artifact。目标 Win7 不安装 Python（原生或 Cygwin），作为待验证的 P0 依赖边界。Python 仅构建/打包使用。详细见 [管理式部署研究](docs/win7-cygwin-managed-deployment.md)。

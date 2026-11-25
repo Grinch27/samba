@@ -41,3 +41,21 @@
 ## 当前阻塞与边界
 
 当前工作流仍是原先 DLL 便携包实验管线，Setup 管理式运行时部署包生成尚未实现。不可将现代对照诊断 Artifact、历史基础包缓存或上游 Setup 当作完成的 Samba 安装包。下一入口为修正后的 Parse-Yapp 构建，取得四工具与实际依赖，再实现运行时仓库生成、离线安装验收。用户真实 Win7 安装、账户/ACL 变更和服务注册均未执行。
+
+## 决策冻结（2026-11-25）
+
+正式采用独立 Cygwin 3.4.10 Setup 管理式离线 ZIP；Samba 自身作为自定义 Cygwin 软件包。旧扁平 DLL 便携包只作依赖研究 Artifact，移除旧自动发布 Job，未撤销首个符合新规格的 Pre-release 授权。新版发布 Job 必须等管理式离线安装和安全门禁实现后再启用。不得覆盖或删除已有产物。
+
+### Python 部署边界（P0）
+
+目标 Win7 SP1 x64 不要求安装原生 Windows Python，也不主动安装 Cygwin Python。当前使用 --without-ad-dc --disable-python，只交付独立文件服务的四个 C 工具；Python 3.9.16 是 Waf 构建依赖，原生 Python 3.14 是 CI 打包和归档处理依赖。Setup 本身为 Windows EXE。现代 smbd 实际递归 DLL 清单未发现 Python DLL。Run 45524865945 已实际通过 Python >=3.6.0 检查（3.9.16），并显示 python headers: Check disabled due to --disable-python；随后在 GnuTLS >=3.6.13 检测失败。无 Win7 完整四工具产物，因此 Python-free 运行仍是待验证目标，不宣称已经通过。
+
+运行仓库仅使用历史 Base、实际运行包、经验证的动态模块/资源和自定义 Samba 包；分别检查二进制普通/延迟导入、动态加载、脚本 shebang、postinstall、包依赖闭包及目标机实际安装清单。新干净 Runner 的隔离安装不得依赖构建环境 Python 或主机 PATH；不得包含 python.exe/python3*.exe、cygpython*.dll、原生 python*.dll 或 Python site-packages，除非后续证明为不可替代依赖并获得用户批准。若历史 Base 或任何选定运行包拉入 Python，明确定位引入者并研究替代或合法裁剪方案，不跳过依赖求解。cygport/mksetupini 可以使用 Python，但只能在打包 CI 使用，不部署到 Win7。不要为新版本的 Python 需求扩大目标机依赖。
+
+### 当前 GnuTLS 阻塞
+
+Run 45524865945 / Job 138905621458：Parse-Yapp 成功，Waf 配置首次到达 GnuTLS 检测；getrandom ok，最低 3.6.13，not found。根因尚未确认：可能是 .pc 元数据、开发头文件、导入库、依赖 pc 文件或实际链接失败，不能只据 not found 推断缺库。保存完整 bin/config.log 与 gnutls-probe.txt；记录 pkg-config 查找路径、gnutls 版本/普通及 static cflags/libs、头文件、导入库和 DLL 依赖。先核对证据，再决定补齐匹配开发依赖或使用旧 SDK 重建 GnuTLS/Nettle。禁止降低 Samba 加密库最低版本要求。
+
+### 验收与账户研究
+
+Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试）：签名连接、文件操作、错密、IPv4 来源拒绝、匿名拒绝、未授权账户、独立读者密码和只读授权、IPv6 回环允许及配置拒绝、真实非白名单 IPv6 拒绝。仅 Linux 对照，目标 Windows 运行仍未验证。Runner UID 197108；LocalSystem 默认 UID 18，不自动等于 Samba root。下一阶段研究真实访问令牌、S4U、NTFS ACL 及必要的专用服务启动方案；不伪造 root、不跳过权限检查、不自动注册服务、不修改用户真实系统。

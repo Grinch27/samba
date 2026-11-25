@@ -196,10 +196,10 @@ jobs:
           } finally { $env:PATH = $previous }
           python research/cygwin-legacy/prepare-release.py --cache (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --packages research/cygwin-legacy/packages.tsv --samba $source --project $env:GITHUB_WORKSPACE --package $package --output (Join-Path $env:RUNNER_TEMP 'samba-release')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload complete portable package and corresponding sources
+      - name: Upload portable dependency research package and corresponding sources
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: samba-win7-preview-release
+          name: samba-win7-portable-research
           path: ${{ runner.temp }}/samba-release/
           if-no-files-found: error
           retention-days: 7
@@ -228,6 +228,8 @@ jobs:
           path: |
             ${{ runner.temp }}/smbd-legacy-evidence/build/summary.md
             ${{ runner.temp }}/smbd-legacy-evidence/build/configure-tail.txt
+            ${{ runner.temp }}/smbd-legacy-evidence/build/upstream-samba/bin/config.log
+            ${{ runner.temp }}/smbd-legacy-evidence/build/gnutls-probe.txt
             ${{ runner.temp }}/smbd-legacy-evidence/build/build-tail.txt
             ${{ runner.temp }}/smbd-legacy-evidence/build/smbd-dlls.txt
             ${{ runner.temp }}/smbd-legacy-evidence/tools-build.log
@@ -246,47 +248,5 @@ jobs:
     permissions:
       contents: read
 
-  prerelease:
-    name: Publish first portable ZIP preview
-    needs: [resolve, legacy-smbd, access-control]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: write
-    concurrency:
-      group: samba-win7-preview1
-      cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ github.token }}
-      TAG: v${{ needs.resolve.outputs.version }}-cygwin3.4.10-preview1
-      SAMBA_VERSION: ${{ needs.resolve.outputs.version }}
-    steps:
-      - name: Download verified release assets
-        run: |
-          set -euo pipefail
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name samba-win7-preview-release --dir release
-          cd release
-          sha256sum -c SHA256SUMS
-          test -s "samba-$SAMBA_VERSION-cygwin-3.4.10-x64.zip"
-          test -s samba-corresponding-source.zip
-      - name: Create first experimental pre-release
-        run: |
-          set -euo pipefail
-          previews=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-cygwin3\\.4\\.10-preview1$")) | .tagName')
-          if [[ -n "$previews" && "$previews" != "$TAG" ]]; then
-            echo 'A prior preview exists; preserve it. New version remains an Artifact pending release approval.'
-            exit 0
-          fi
-          existing=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '.[] | select(.tagName == env.TAG) | .isDraft')
-          if [[ "$existing" == false ]]; then
-            echo 'First preview already exists; no overwrite.'
-            exit 0
-          fi
-          if [[ "$existing" == true ]]; then
-            echo 'Existing draft requires recovery; refusing overwrite.' >&2
-            exit 1
-          fi
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --title "Samba $SAMBA_VERSION Cygwin 3.4.10 x64 experimental preview" --notes 'Portable ZIP and corresponding-source ZIP. Built and startup-checked on Windows Server 2022; Windows 7 SP1, NTFS account isolation and service behavior are not validated. Not a production release. SMB 2.1+; mandatory signing; NTLMv2; encryption optional.' release/*.zip release/SHA256SUMS
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+  # The approved first pre-release now requires a Setup-managed offline package.
+  # The legacy flattened DLL package remains a research Artifact only.
