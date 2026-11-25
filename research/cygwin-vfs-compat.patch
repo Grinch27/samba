@@ -45,3 +45,23 @@ index 9738ad5..c8e374a 100644
  #ifndef HAVE_RENAMEAT2
  
  #ifndef RENAME_NOREPLACE
+diff --git a/third_party/heimdal_build/wscript_build b/third_party/heimdal_build/wscript_build
+--- a/third_party/heimdal_build/wscript_build
++++ b/third_party/heimdal_build/wscript_build
+@@ -931,7 +931,7 @@
+     HEIMDAL_LIBRARY('heimbase',
+         HEIMBASE_SOURCE,
+         includes='../heimdal/lib/base ../heimdal/include ../heimdal/lib/krb5',
+-        deps='roken replace com_err',
++        deps='roken replace com_err samba_intl',
+         cflags=['-DLOCALSTATEDIR="/2"'] + bld.dynconfig_cflags(),
+         version_script='lib/base/version-script.map',
+         )
+@@ -945,6 +945,6 @@
+         use_hostcc=True,
+         use_global_deps=False,
+         includes='../heimdal/lib/base ../heimdal/lib/com_err ../heimdal/include ../heimdal/lib/krb5',
+         group='hostcc_build_main',
+-        deps='ROKEN_HOSTCC LIBREPLACE_HOSTCC',
++        deps='ROKEN_HOSTCC LIBREPLACE_HOSTCC ' + bld.env.intl_libs,
+         )
