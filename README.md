@@ -63,3 +63,11 @@
 Samba 跟踪官方最新稳定版（https://www.samba.org/samba/download/）；当前仍为 4.25.1。未来在单独版本解析 Job 获取稳定版本及 tag 对应 commit，单次 Run 锁定，Linux/Cygwin 共用；补丁、版本清单、对应源码及 Release 标签全部使用该锁定值。RC/alpha/beta 不参与，升级失败保留上一成功版本。当前发布管线尚未动态化；Cygwin 3.4.10 保持固定。
 
 离线 Setup 使用已校验依赖闭包的显式包名及 verbose solver 日志；若 Python 仍缺失，临时 Runner 从同一固定索引、已校验的 Python 依赖归档补齐未安装包，通过 Cygwin 自身 tar（不覆盖现有文件）及实际 Python 导入测试。该补齐路径不注册为安装器事务，不用于目标机安装。记录 Cygwin UID/GID，不修改账户映射。Linux 增加非白名单 IPv6 实际连接拒绝测试，只在 Runner 回环接口上使用临时 ULA 地址并清理。Windows UID/SID 权限问题仍须独立验证。
+
+## 2026-11-25：动态稳定版及 Win7 部署依赖
+
+每次构建从 Samba 官方 HTTPS 下载目录的 LATEST-IS-SAMBA 标记解析稳定版本，再将 GitHub 上游 tag 解引用为 commit；旧版 Cygwin Job 和 Linux 安全对照共用同一次解析结果，现代 Cygwin 对照独立解析。解析失败、tag 移动或补丁不适用即失败。当前未进行独立 GPG 签名验证。四工具 smbd/testparm/smbpasswd/smbcontrol 同时打包；manifest、ZIP 文件名、预发布标签使用实际版本。不覆盖旧版本；沿用首个合格预发布授权，后续新版本只生成 Artifact，已有预发布时不自动创建另一个 Release。stop.cmd 仍待实例隔离验证。
+
+已从 Run 45398538598 的 Artifact 14924519512 检查 smbd-dlls.txt：现代 Cygwin 3.6.12 的 smbd.exe 递归依赖 16 个非系统 DLL（cygwin1、cygcrypt-2、cyggnutls-30、cyggmp-10、cyghogweed-7、cygnettle-9、cygidn2-0、cygiconv-2、cygintl-8、cygp11-kit-0、cyggcc_s-seh-1、cygffi-8、cygtasn1-6、cygunistring-5、cygpopt-0、cygz）及 KERNEL32/ntdll/KERNELBASE。不是 Win7 的最终清单；目标机不应安装编译器、Python、Perl 或完整开发工具。是否需要额外系统更新、cygserver、账户映射文件或动态模块取决于最终目标平台测试。
+
+Run 45523425534 实际补齐 Python 3.9.16 并通过导入测试，随后错误的 cygcheck -d 命令失败；已改为 -c -d。实际 Runner UID=197108、GID=197121，未证明 UID 0 账户管理可用。Linux 对照发现 private dir 不展开环境变量，已改为明确路径。部署时必须将 smb.conf 所有 @PORTABLE_ROOT@ 替换为实际 /cygdrive/盘符/目录，保持一个配置和受保护的 private 目录；启动和密码管理入口检查 private dir。Windows 构建使用独立临时配置，不将测试数据库或临时路径打入 ZIP。新代码尚待 Actions 实测。

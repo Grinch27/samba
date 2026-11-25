@@ -103,3 +103,11 @@ Windows Server 2022 上的 NTFS 实验使用 Cygwin 3.4.10。`user.DOSATTRIB` �
 默认跟踪 Samba 官方最新稳定版本，单次解析锁定 tag/commit，版本变化必须重新通过补丁和安全门禁。现有 4.25.1 发布管线先保持不变。Cygwin Python 缺失诊断见 repair-python.py；只补齐已哈希校验的缺失构建包，不跳过 Samba 权限检查。IPv6 白名单测试同时要求实际允许 ::1、实际拒绝不同源地址，检查服务端拒绝日志。
 
 stop.cmd 候选优先使用同一配置的 smbcontrol smbd shutdown（额外工具），并验证当前包专用 PID、运行目录、进程身份及实际消息端点。不能仅靠进程名或裸 PID，不能 taskkill /IM smbd.exe。须先验证两实例互不影响、陈旧 PID 拒绝及正常停止；实现和发布待后续验证。UID 0 与 Windows SID 映射须依据真实访问令牌和 NTFS 双账户访问实测，不伪造 uid、禁用权限检查或使用共享高权限身份。
+
+## 2026-11-25：动态稳定版及 Win7 部署依赖
+
+每次构建从 Samba 官方 HTTPS 下载目录的 LATEST-IS-SAMBA 标记解析稳定版本，再将 GitHub 上游 tag 解引用为 commit；旧版 Cygwin Job 和 Linux 安全对照共用同一次解析结果，现代 Cygwin 对照独立解析。解析失败、tag 移动或补丁不适用即失败。当前未进行独立 GPG 签名验证。四工具 smbd/testparm/smbpasswd/smbcontrol 同时打包；manifest、ZIP 文件名、预发布标签使用实际版本。不覆盖旧版本；沿用首个合格预发布授权，后续新版本只生成 Artifact，已有预发布时不自动创建另一个 Release。stop.cmd 仍待实例隔离验证。
+
+已从 Run 45398538598 的 Artifact 14924519512 检查 smbd-dlls.txt：现代 Cygwin 3.6.12 的 smbd.exe 递归依赖 16 个非系统 DLL（cygwin1、cygcrypt-2、cyggnutls-30、cyggmp-10、cyghogweed-7、cygnettle-9、cygidn2-0、cygiconv-2、cygintl-8、cygp11-kit-0、cyggcc_s-seh-1、cygffi-8、cygtasn1-6、cygunistring-5、cygpopt-0、cygz）及 KERNEL32/ntdll/KERNELBASE。不是 Win7 的最终清单；目标机不应安装编译器、Python、Perl 或完整开发工具。是否需要额外系统更新、cygserver、账户映射文件或动态模块取决于最终目标平台测试。
+
+Run 45523425534 实际补齐 Python 3.9.16 并通过导入测试，随后错误的 cygcheck -d 命令失败；已改为 -c -d。实际 Runner UID=197108、GID=197121，未证明 UID 0 账户管理可用。Linux 对照发现 private dir 不展开环境变量，已改为明确路径。部署时必须将 smb.conf 所有 @PORTABLE_ROOT@ 替换为实际 /cygdrive/盘符/目录，保持一个配置和受保护的 private 目录；启动和密码管理入口检查 private dir。Windows 构建使用独立临时配置，不将测试数据库或临时路径打入 ZIP。新代码尚待 Actions 实测。

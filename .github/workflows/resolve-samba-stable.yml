@@ -1,0 +1,55 @@
+# 待确认：后续稳定版本的兼容补丁及工具链最低要求。
+# 歧义：官方稳定版本可编译不代表兼容 Win7。
+# 后续研究：校验上游签名并记录完整依赖锁。
+# 潜在优化：已成功版本的重复构建去重。
+# 风险：官方版本标记或 Git tag 解析失败时停止，不回退到 RC/main。
+# 验证重点：稳定版本、tag 解引用及所有 Job 共用相同 commit。
+name: Resolve Samba stable source
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
+      commit:
+        type: string
+        default: ''
+    outputs:
+      version:
+        value: ${{ jobs.resolve.outputs.version }}
+      commit:
+        value: ${{ jobs.resolve.outputs.commit }}
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - name: Resolve official stable version and exact upstream commit
+        id: source
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_COMMIT: ${{ inputs.commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$REQUESTED_VERSION
+          commit=$REQUESTED_COMMIT
+          if [[ -z "$version" && -z "$commit" ]]; then
+            index=$(curl --fail --silent --show-error --location --retry 3 --max-time 60 https://download.samba.org/pub/samba/)
+            version=$(printf '%s\n' "$index" | grep -oE 'LATEST-IS-SAMBA-[0-9]+\.[0-9]+\.[0-9]+' | sort -u | sed 's/^LATEST-IS-SAMBA-//')
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            tag="refs/tags/samba-$version"
+            refs=$(git ls-remote https://github.com/samba-team/samba.git "$tag" "$tag^{}")
+            commit=$(awk -v tag="$tag^{}" '$2 == tag {print $1}' <<< "$refs")
+            if [[ -z "$commit" ]]; then
+              commit=$(awk -v tag="$tag" '$2 == tag {print $1}' <<< "$refs")
+            fi
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$commit" =~ ^[0-9a-f]{40}$ ]]
+          printf 'version=%s\ncommit=%s\n' "$version" "$commit" >> "$GITHUB_OUTPUT"
+          printf 'Samba stable: %s (%s)\n' "$version" "$commit"

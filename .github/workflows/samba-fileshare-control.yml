@@ -11,15 +11,35 @@ on:
     branches: [main]
     paths:
       - .github/workflows/samba-fileshare-control.yml
+      - .github/workflows/resolve-samba-stable.yml
       - research/probe-smbd-fileshare.sh
   workflow_dispatch:
   workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
+      commit:
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
+  resolve:
+    uses: ./.github/workflows/resolve-samba-stable.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ inputs.version || '' }}
+      commit: ${{ inputs.commit || '' }}
+
   linux-control:
+    needs: resolve
+    env:
+      SAMBA_VERSION: ${{ needs.resolve.outputs.version }}
+      SAMBA_COMMIT: ${{ needs.resolve.outputs.commit }}
     name: Signed SMB 2.1 standalone share on Linux
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -41,10 +61,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           mkdir samba-control-evidence
-          git clone --quiet --depth 1 --branch samba-4.25.1 \
+          git clone --quiet --depth 1 --branch "samba-$SAMBA_VERSION" \
             https://github.com/samba-team/samba.git samba-control-source
           cd samba-control-source
-          test "$(git rev-parse HEAD)" = 02e8e3f93f4af787bcb3389cbff9e22e74567eb2
+          test "$(git rev-parse HEAD)" = "$SAMBA_COMMIT"
           ./configure --without-ad-dc --without-ads --without-ldap --without-pam \
             --without-gpgme --without-json --without-acl-support --without-libarchive \
             --without-regedit --without-winexe --without-systemd --without-ldb-lmdb \

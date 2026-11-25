@@ -146,7 +146,7 @@ def main():
         "No full independent license audit or Windows 7 runtime verification is claimed.\n",
         encoding="utf-8")
     for directory, name in ((sources, "samba-corresponding-source.zip"),
-                            (args.package, "samba-4.25.1-cygwin-3.4.10-x64.zip")):
+                            (args.package, f"samba-{manifest['samba_version']}-cygwin-3.4.10-x64.zip")):
         with zipfile.ZipFile(args.output / name, "w", zipfile.ZIP_DEFLATED, compresslevel=3) as archive:
             for file in sorted(directory.rglob("*")):
                 if file.is_file():

@@ -44,6 +44,11 @@ set "OP="
 :run
 "%~dp0bin\testparm.exe" -s "%SAMBA_PORTABLE_ROOT%/smb.conf" >nul
 if errorlevel 1 goto failed
+"%~dp0bin\testparm.exe" -s --parameter-name="private dir" "%SAMBA_PORTABLE_ROOT%/smb.conf" | "%SystemRoot%\System32\findstr.exe" /I /L /X /C:"%SAMBA_PORTABLE_ROOT%/private" >nul
+if errorlevel 1 (
+  echo Set private dir and all other runtime directories to the actual package path in smb.conf. 1>&2
+  goto failed
+)
 "%~dp0bin\smbpasswd.exe" -L -c "%SAMBA_PORTABLE_ROOT%/smb.conf" %OP% "%SAMBA_ACCOUNT%"
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" echo Account operation failed; verify Cygwin UID 0 and database ACL. 1>&2

@@ -24,17 +24,19 @@ fi
 mkdir -- "$1"
 output=$(realpath -e -- "$1")
 summary="$output/summary.md"
-source_commit=02e8e3f93f4af787bcb3389cbff9e22e74567eb2
+source_commit=${SAMBA_COMMIT:?Resolve the stable Samba commit first}
+source_version=${SAMBA_VERSION:?Resolve the stable Samba version first}
+[[ $source_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $source_commit =~ ^[0-9a-f]{40}$ ]]
 
 {
-  printf '# Samba 4.25.1 smbd Cygwin probe\n\n'
+  printf '# Samba %s smbd Cygwin probe\n\n' "$source_version"
   printf -- '- Host: `%s`.\n' "$(uname -srm)"
   printf -- '- Cygwin runtime: `%s`.\n' "$(uname -r)"
   printf -- '- Samba commit: `%s`.\n' "$source_commit"
 } | tee "$summary"
 cygcheck -c > "$output/packages.txt"
 
-git -c core.autocrlf=false clone --quiet --depth 1 --branch samba-4.25.1 \
+git -c core.autocrlf=false clone --quiet --depth 1 --branch "samba-$source_version" \
   https://github.com/samba-team/samba.git "$output/upstream-samba"
 cd "$output/upstream-samba"
 test "$(git rev-parse HEAD)" = "$source_commit"

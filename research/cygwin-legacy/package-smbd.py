@@ -16,7 +16,7 @@ import re
 import shutil
 import subprocess
 
-BINARIES = ("smbd.exe", "testparm.exe", "smbpasswd.exe")
+BINARIES = ("smbd.exe", "testparm.exe", "smbpasswd.exe", "smbcontrol.exe")
 DLL_PATH = re.compile(r"^\s*(?:[A-Za-z]:[\\/]|/).+?\.dll\s*$", re.I)
 ERROR = re.compile(r"(?:could not find|not found|error:|cannot find)", re.I)
 
@@ -94,7 +94,7 @@ def create_package(source: Path, cygwin_root: Path, output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=False)
     bin_dir = output / "bin"
     bin_dir.mkdir()
-    manifest = {"status": "experimental-not-win7-validated", "samba_version": "4.25.1",
+    manifest = {"status": "experimental-not-win7-validated", "samba_version": os.environ["SAMBA_VERSION"],
                 "cygwin_runtime": "3.4.10", "protocol_min": "SMB2_10",
                 "protocol_max": "SMB3_11", "signing": "mandatory",
                 "ntlm_auth": "ntlmv2-only", "smb_encryption": "if_required",
@@ -120,9 +120,9 @@ def create_package(source: Path, cygwin_root: Path, output: Path) -> dict:
     (output / "SHA256SUMS").write_text(
         "".join(f"{entry['sha256']}  {entry['path']}\n" for entry in manifest["files"]), encoding="utf-8")
     (output / "README.txt").write_text(
-        "Samba 4.25.1 / Cygwin 3.4.10 x64 RESEARCH ARTIFACT\n"
+        f"Samba {manifest['samba_version']} / Cygwin 3.4.10 x64 RESEARCH ARTIFACT\n"
         "This is an authorized experimental preview candidate, not a verified Win7 runtime or installer.\n"
-        "Executables: bin/smbd.exe, bin/testparm.exe, bin/smbpasswd.exe\n"
+        "Executables: bin/smbd.exe, bin/testparm.exe, bin/smbpasswd.exe, bin/smbcontrol.exe\n"
         "SMB2_10..SMB3_11; NTLMv2 user authentication; mandatory signing.\n"
         "SMB3 encryption is negotiable and not mandatory (server smb encrypt = if_required).\n"
         "Windows system DLLs and dynamically loaded modules may require separate validation.\n"

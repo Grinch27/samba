@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/win7-smbd-research.yml
+      - .github/workflows/resolve-samba-stable.yml
       - research/cygwin-vfs-compat.patch
       - research/probe-cygwin-smbd.sh
   workflow_dispatch:
@@ -19,7 +20,16 @@ permissions:
   contents: read
 
 jobs:
+  resolve:
+    uses: ./.github/workflows/resolve-samba-stable.yml
+    permissions:
+      contents: read
+
   cygwin-control:
+    needs: resolve
+    env:
+      SAMBA_VERSION: ${{ needs.resolve.outputs.version }}
+      SAMBA_COMMIT: ${{ needs.resolve.outputs.commit }}
     name: smbd build on current Cygwin x64
     runs-on: windows-2022
     timeout-minutes: 65

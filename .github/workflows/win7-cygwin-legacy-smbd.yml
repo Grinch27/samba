@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/win7-cygwin-legacy-smbd.yml
+      - .github/workflows/resolve-samba-stable.yml
       - research/cygwin-legacy/verify-cache.py
       - research/cygwin-legacy/repair-python.py
       - research/cygwin-legacy/package-smbd.py
@@ -31,11 +32,19 @@ permissions:
   contents: read
 
 jobs:
+  resolve:
+    uses: ./.github/workflows/resolve-samba-stable.yml
+    permissions:
+      contents: read
+
   legacy-smbd:
-    name: Samba 4.25.1 on Cygwin 3.4.10 x64
+    needs: resolve
+    name: Samba ${{ needs.resolve.outputs.version }} on Cygwin 3.4.10 x64
     runs-on: windows-2022
     timeout-minutes: 120
     env:
+      SAMBA_VERSION: ${{ needs.resolve.outputs.version }}
+      SAMBA_COMMIT: ${{ needs.resolve.outputs.commit }}
       CYGWIN_PACKAGES: bison,cygwin-devel,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,python39,rpcsvc-proto,zlib-devel,zstd
     steps:
       - name: Preserve LF line endings
@@ -99,7 +108,7 @@ jobs:
             python research/cygwin-legacy/repair-python.py $root $cache
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-          & $bash --noprofile --norc -c 'set -e; export PATH=/usr/bin:/bin; python3 --version; id -u; id -g; id -un; cygcheck -d cygwin python39'
+          & $bash --noprofile --norc -c 'set -e; export PATH=/usr/bin:/bin; python3 --version; id -u; id -g; id -un; cygcheck -c -d cygwin python39'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Overlay pinned libraries without running Cygwin
         shell: pwsh
@@ -130,16 +139,16 @@ jobs:
           export PATH=/usr/bin:/bin
           unset PKG_CONFIG_PATH PYTHONHOME PYTHONPATH
           export PERL5LIB="$evidence/Parse-Yapp-1.21/lib"
-          export SAMBA_NONSHARED_BINARIES=smbd/smbd,testparm,smbpasswd
+          export SAMBA_NONSHARED_BINARIES=smbd/smbd,testparm,smbpasswd,smbcontrol
           /usr/bin/bash "$project/research/probe-cygwin-smbd.sh" "$evidence/build"
           cd "$evidence/build/upstream-samba"
           PYTHONHASHSEED=1 WAF_MAKE=1 timeout --kill-after=15s 15m \
-            ./buildtools/bin/waf build --targets=testparm,smbpasswd -j 4 \
+            ./buildtools/bin/waf build --targets=testparm,smbpasswd,smbcontrol -j 4 \
             2>&1 | tee "$evidence/tools-build.log"
           '@
           & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
           exit $LASTEXITCODE
-      - name: Prepare complete three-program DLL package
+      - name: Prepare complete four-program DLL package
         shell: pwsh
         run: |
           $source = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence/build/upstream-samba'
@@ -161,24 +170,26 @@ jobs:
           foreach ($name in @('private', 'state', 'cache', 'lock', 'run', 'rpc')) { New-Item -ItemType Directory (Join-Path $probeRoot $name) | Out-Null }
           $probePath = $probeRoot.Replace('\', '/')
           $env:SAMBA_PORTABLE_ROOT = '/cygdrive/' + $probePath.Substring(0,1).ToLowerInvariant() + $probePath.Substring(2)
+          $probeConfig = Join-Path $probeRoot 'smb.conf'
+          (Get-Content (Join-Path $package 'smb.conf') -Raw).Replace('@PORTABLE_ROOT@', $env:SAMBA_PORTABLE_ROOT) | Set-Content -LiteralPath $probeConfig -Encoding utf8NoBOM
           $previous = $env:PATH
           try {
             $env:PATH = "$bin;$env:SystemRoot\System32;$env:SystemRoot"
-            foreach ($name in @('smbd.exe', 'testparm.exe')) {
+            foreach ($name in @('smbd.exe', 'testparm.exe', 'smbcontrol.exe')) {
               & (Join-Path $bin $name) --version
               if ($LASTEXITCODE -ne 0) { throw "Portable startup failed: $name" }
             }
-            & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf')
+            & (Join-Path $bin 'testparm.exe') -s $probeConfig
             if ($LASTEXITCODE -ne 0) { throw 'Sample configuration rejected' }
-            $allowed = & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf') localhost 127.0.0.1 2>&1 | Out-String
+            $allowed = & (Join-Path $bin 'testparm.exe') -s $probeConfig localhost 127.0.0.1 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0 -or $allowed -notmatch 'Allow connection from localhost.*to data') { throw "Whitelist allow check failed: $allowed" }
-            $denied = & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf') outside 192.0.2.1 2>&1 | Out-String
+            $denied = & (Join-Path $bin 'testparm.exe') -s $probeConfig outside 192.0.2.1 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0 -or $denied -notmatch 'Deny connection from outside.*to data') { throw "Whitelist deny check failed: $denied" }
-            $v6 = & (Join-Path $bin 'testparm.exe') -s (Join-Path $package 'smb.conf') outside 2001:db8::123 2>&1 | Out-String
+            $v6 = & (Join-Path $bin 'testparm.exe') -s $probeConfig outside 2001:db8::123 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0 -or $v6 -notmatch 'Deny connection from outside.*to data') { throw "IPv6 deny check failed: $v6" }
             # Use only a disposable test database, never the staged package or an OS password.
             $secret = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
-            @($secret, $secret) | & (Join-Path $bin 'smbpasswd.exe') -L -s -a -c (Join-Path $package 'smb.conf') $env:USERNAME
+            @($secret, $secret) | & (Join-Path $bin 'smbpasswd.exe') -L -s -a -c $probeConfig $env:USERNAME
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $probeRoot 'private/passdb.tdb') -PathType Leaf)) { throw "Local account-management probe failed; investigate Cygwin UID/SID and configured private dir" }
             Remove-Variable secret
             Write-Host "Local password database creation: PASS"
@@ -201,7 +212,7 @@ jobs:
           $out = Join-Path $evidence 'binaries'
           New-Item -ItemType Directory -Force $out | Out-Null
           if (Test-Path $bin) {
-            foreach ($name in @('smbd.exe', 'testparm.exe', 'smbpasswd.exe')) {
+            foreach ($name in @('smbd.exe', 'testparm.exe', 'smbpasswd.exe', 'smbcontrol.exe')) {
               $file = Get-ChildItem -LiteralPath $bin -Filter $name -File -Recurse | Select-Object -First 1
               if ($file) {
                 Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $out $name)
@@ -227,13 +238,17 @@ jobs:
 
   access-control:
     name: Verify SMB access-control reference
+    needs: resolve
     uses: ./.github/workflows/samba-fileshare-control.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      commit: ${{ needs.resolve.outputs.commit }}
     permissions:
       contents: read
 
   prerelease:
     name: Publish first portable ZIP preview
-    needs: [legacy-smbd, access-control]
+    needs: [resolve, legacy-smbd, access-control]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -245,7 +260,8 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: v4.25.1-cygwin3.4.10-preview1
+      TAG: v${{ needs.resolve.outputs.version }}-cygwin3.4.10-preview1
+      SAMBA_VERSION: ${{ needs.resolve.outputs.version }}
     steps:
       - name: Download verified release assets
         run: |
@@ -253,11 +269,16 @@ jobs:
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name samba-win7-preview-release --dir release
           cd release
           sha256sum -c SHA256SUMS
-          test -s samba-4.25.1-cygwin-3.4.10-x64.zip
+          test -s "samba-$SAMBA_VERSION-cygwin-3.4.10-x64.zip"
           test -s samba-corresponding-source.zip
       - name: Create first experimental pre-release
         run: |
           set -euo pipefail
+          previews=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-cygwin3\\.4\\.10-preview1$")) | .tagName')
+          if [[ -n "$previews" && "$previews" != "$TAG" ]]; then
+            echo 'A prior preview exists; preserve it. New version remains an Artifact pending release approval.'
+            exit 0
+          fi
           existing=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '.[] | select(.tagName == env.TAG) | .isDraft')
           if [[ "$existing" == false ]]; then
             echo 'First preview already exists; no overwrite.'
@@ -267,5 +288,5 @@ jobs:
             echo 'Existing draft requires recovery; refusing overwrite.' >&2
             exit 1
           fi
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --title 'Samba 4.25.1 Cygwin 3.4.10 x64 experimental preview' --notes 'Portable ZIP and corresponding-source ZIP. Built and startup-checked on Windows Server 2022; Windows 7 SP1, NTFS account isolation and service behavior are not validated. Not a production release. SMB 2.1+; mandatory signing; NTLMv2; encryption optional.' release/*.zip release/SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --title "Samba $SAMBA_VERSION Cygwin 3.4.10 x64 experimental preview" --notes 'Portable ZIP and corresponding-source ZIP. Built and startup-checked on Windows Server 2022; Windows 7 SP1, NTFS account isolation and service behavior are not validated. Not a production release. SMB 2.1+; mandatory signing; NTLMv2; encryption optional.' release/*.zip release/SHA256SUMS
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease

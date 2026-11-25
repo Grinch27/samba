@@ -26,6 +26,11 @@ if not exist "%~dp0bin\testparm.exe" goto missing
 if not exist "%~dp0private\passdb.tdb" goto missing
 "%~dp0bin\testparm.exe" -s "%SAMBA_PORTABLE_ROOT%/smb.conf" >nul
 if errorlevel 1 goto failed
+"%~dp0bin\testparm.exe" -s --parameter-name="private dir" "%SAMBA_PORTABLE_ROOT%/smb.conf" | "%SystemRoot%\System32\findstr.exe" /I /L /X /C:"%SAMBA_PORTABLE_ROOT%/private" >nul
+if errorlevel 1 (
+  echo Set private dir and all other runtime directories to the actual package path in smb.conf. 1>&2
+  goto failed
+)
 echo Running in foreground. Use Ctrl+C in this console to stop.
 "%~dp0bin\smbd.exe" --foreground --no-process-group --debug-stdout --configfile="%SAMBA_PORTABLE_ROOT%/smb.conf"
 set "RC=%ERRORLEVEL%"
