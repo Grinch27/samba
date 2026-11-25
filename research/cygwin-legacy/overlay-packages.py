@@ -9,20 +9,39 @@
 
 import argparse
 import hashlib
+from http.client import IncompleteRead
 import posixpath
 from pathlib import Path, PurePosixPath
 import tarfile
+from time import sleep
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 def download(url, size, checksum, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with urlopen(url, timeout=90) as response, destination.open("wb") as out:
-        while chunk := response.read(1024 * 1024):
-            out.write(chunk)
-    with destination.open("rb") as stream:
-        actual = hashlib.file_digest(stream, "sha512").hexdigest()
-    if destination.stat().st_size != size or actual != checksum:
-        raise ValueError(f"Archive integrity failed: {url}")
+    partial = destination.with_suffix(destination.suffix + ".part")
+    for attempt in range(1, 4):
+        print(f"Downloading {destination.name} (attempt {attempt}/3)", flush=True)
+        try:
+            with urlopen(url, timeout=90) as response, partial.open("wb") as out:
+                while chunk := response.read(1024 * 1024):
+                    out.write(chunk)
+        except (URLError, TimeoutError, ConnectionError, IncompleteRead) as error:
+            partial.unlink(missing_ok=True)
+            if isinstance(error, HTTPError) and error.code not in {408, 429, 500, 502, 503, 504}:
+                raise
+            if attempt == 3:
+                raise
+            print(f"Retrying {destination.name}: {error}", flush=True)
+            sleep(attempt * 2)
+            continue
+        with partial.open("rb") as stream:
+            actual = hashlib.file_digest(stream, "sha512").hexdigest()
+        if partial.stat().st_size != size or actual != checksum:
+            partial.unlink(missing_ok=True)
+            raise ValueError(f"Archive integrity failed: {url}")
+        partial.replace(destination)
+        return
 
 def mapped(name):
     parts = PurePosixPath(name).parts
