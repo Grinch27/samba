@@ -17,8 +17,19 @@ permissions:
   contents: read
 
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
   prepare:
-    runs-on: ubuntu-24.04
+    needs: runner-image
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     timeout-minutes: 20
     env:
       CYGWIN_PACKAGES: bison,cygwin-devel,curl,diffutils,flex,gcc-core,git,libcrypt-devel,libiconv-devel,libintl-devel,libpopt-devel,libreadline-devel,libtasn1-devel,libtirpc-devel,make,perl,pkg-config,python3,python39,rpcsvc-proto,zlib-devel,zstd
@@ -74,4 +85,4 @@ jobs:
           path: ${{ runner.temp }}/cygwin-inputs/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 3
+          retention-days: 1
