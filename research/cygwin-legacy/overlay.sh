@@ -19,3 +19,6 @@ curl --fail --location --silent --show-error --retry 2 --max-time 90 \
 printf '%s  %s\n' "$checksum" "$output/Parse-Yapp-1.21.tar.gz" | sha256sum --check
 tar -xf "$output/Parse-Yapp-1.21.tar.gz" -C "$output"
 PERL5LIB="$output/Parse-Yapp-1.21/lib" perl -MParse::Yapp -e 'print "Parse::Yapp available\n"'
+# Waf needs the CLI in its restricted PATH, not just the Perl module.
+install -m 0755 "$output/Parse-Yapp-1.21/yapp" /usr/bin/yapp
+PERL5LIB="$output/Parse-Yapp-1.21/lib" /usr/bin/yapp -V
