@@ -21,7 +21,7 @@ mkdir -- "$output/packages" "$output/sysroot" "$output/runtime"
 primary=https://mirrors.kernel.org/sourceware/cygwin/
 mirrors=("$primary" https://gcc.gnu.org/ftp/cygwin/ https://mirrors.mit.edu/cygwin/)
 
-while IFS=
+while IFS=$'\t' read -r url size digest; do
   [[ $url == \#* || -z $url ]] && continue
   archive="$output/packages/${url##*/}"
   sources=("$url")
@@ -46,41 +46,13 @@ while IFS=
   test "$(wc -c < "$archive")" -eq "$size"
   printf '%s  %s\n' "$digest" "$archive" | sha512sum --check
   if [[ $url == "$primary"* ]]; then
-    preferred=${source%${url#"$primary"}}
+    preferred=${source%"${url#"$primary"}"}
     remaining=()
     for mirror in "${mirrors[@]}"; do
       [[ $mirror == "$preferred" ]] || remaining+=("$mirror")
     done
     mirrors=("$preferred" "${remaining[@]}")
   fi
-  tar --exclude=usr/lib/libg.a -xf "$archive" -C "$output/sysroot"
-done < "$probe_dir/packages.tsv"
-
-sysroot="$output/sysroot/usr"
-cp -- "$sysroot/bin/"*.dll "$output/runtime/"
-for probe in datagram crypto filesystem; do
-  libraries=()
-  if [[ $probe == crypto ]]; then
-    libraries+=("$sysroot/lib/libgnutls.dll.a")
-  fi
-
-  "$toolchain/bin/clang" --target=x86_64-pc-cygwin -nostdlibinc \
-    -isystem "$sysroot/include" -std=gnu11 -Wall -Wextra -Werror \
-    -c "$probe_dir/$probe.c" -o "$output/$probe.o"
-  executable="$output/runtime/legacy-$probe.exe"
-  "$toolchain/bin/ld.lld" -m i386pep --subsystem console --entry mainCRTStartup \
-    --major-os-version 6 --minor-os-version 1 --major-subsystem-version 6 --minor-subsystem-version 1 \
-    "$sysroot/lib/crt0.o" "$output/$probe.o" "${libraries[@]}" "$sysroot/lib/libcygwin.a" \
-    "$toolchain/x86_64-w64-mingw32/lib/libkernel32.a" -o "$executable"
-  "$toolchain/bin/llvm-readobj" --file-headers --coff-imports "$executable" > "$output/$probe-pe.txt"
-done
-\t' read -r url size digest; do
-  [[ $url == \#* || -z $url ]] && continue
-  archive="$output/packages/${url##*/}"
-  curl --fail --location --silent --show-error --retry 2 --max-time 45 \
-    --proto '=https' --proto-redir '=https' --output "$archive" "$url"
-  test "$(wc -c < "$archive")" -eq "$size"
-  printf '%s  %s\n' "$digest" "$archive" | sha512sum --check
   tar --exclude=usr/lib/libg.a -xf "$archive" -C "$output/sysroot"
 done < "$probe_dir/packages.tsv"
 
