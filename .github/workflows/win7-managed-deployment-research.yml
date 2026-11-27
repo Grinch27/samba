@@ -2,11 +2,19 @@
 # 歧义：Server 2022 探针不等于 Win7 实机验收；此处仍用完整构建环境研究。
 # 后续研究：合法管理员身份、最小运行闭包、Setup 原生 samba-win7 包。
 # 潜在优化：直接复用同批编译与依赖 Artifact，避免重复 Waf 构建。
-# 风险：仅信任本仓库 main 的已编译输入；不创建账号、不修改系统服务/ACL、不发布。
+# 风险：仅信任本仓库 main 已编译输入；身份实验仅临时 GitHub-hosted Runner，不发布。
 # 验证重点：独立 Setup 根、四工具启动、正式配置解析及实际 SID/UID。
 name: Samba managed deployment research
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/win7-managed-deployment-research.yml
+      - research/cygwin-legacy/runtime-closure.py
+      - research/cygwin-legacy/system-identity-probe.ps1
+      - deployment/smb.conf
+      - deployment/smbusers
   workflow_run:
     workflows: ["Samba smbd Cygwin 3.4.10 Win7 research"]
     branches: [main]
@@ -75,6 +83,67 @@ jobs:
       source_ref: ${{ needs.select.outputs.source_ref }}
     permissions:
       contents: read
+
+  runtime-closure:
+    needs: [runner-image, select, dependencies]
+    if: ${{ !cancelled() && needs.select.result == 'success' && (needs.dependencies.result == 'success' || needs.dependencies.result == 'skipped') }}
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Retrieve compiled provenance
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: samba-win7-compiled-inputs
+          path: ${{ runner.temp }}/compiled-samba
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.select.outputs.run_id }}
+      - name: Retrieve original fixed inputs
+        if: ${{ needs.select.outputs.refresh == 'false' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cygwin-build-inputs
+          path: ${{ runner.temp }}
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.select.outputs.run_id }}
+      - name: Retrieve refreshed fixed inputs
+        if: ${{ needs.select.outputs.refresh == 'true' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cygwin-build-inputs
+          path: ${{ runner.temp }}
+      - name: Plan runtime dependency closure from signed metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/runtime-metadata"
+          mkdir -p "$work"
+          export GNUPGHOME="$work/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          mirror=https://mirrors.kernel.org/sourceware/cygwin
+          curl -fsSL --retry 2 --max-time 60 https://cygwin.com/key/pubring.asc -o "$work/pubring.asc"
+          curl -fsSL --retry 2 --max-time 60 "$mirror/x86_64/setup.xz" -o "$work/setup.xz"
+          curl -fsSL --retry 2 --max-time 60 "$mirror/x86_64/setup.xz.sig" -o "$work/setup.xz.sig"
+          gpg --batch --import "$work/pubring.asc"
+          gpg --batch --status-fd 1 --verify "$work/setup.xz.sig" "$work/setup.xz" > "$work/signature.txt"
+          grep -E '^\[GNUPG:\] VALIDSIG .*56405CF6FCC81574682A5D561A698DE9E2E56300( |$)' "$work/signature.txt"
+          python3 research/cygwin-legacy/runtime-closure.py \
+            --historical "$RUNNER_TEMP/cygwin-cache/historical/x86_64/setup.ini" \
+            --modern "$work/setup.xz" \
+            --providers "$RUNNER_TEMP/compiled-samba/runtime-package-candidates.json" \
+            --output "$RUNNER_TEMP/runtime-closure.json"
+      - name: Save closure candidate
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: samba-runtime-closure-candidate
+          path: |
+            ${{ runner.temp }}/runtime-closure.json
+            ${{ runner.temp }}/runtime-metadata/signature.txt
+          if-no-files-found: warn
+          retention-days: 1
 
   managed:
     needs: [select, dependencies]
@@ -168,6 +237,11 @@ jobs:
         run: |
           python research/cygwin-legacy/runtime-packages.py --manifest (Join-Path $env:RUNNER_TEMP 'compiled-samba/manifest.json') --historical (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --lock (Join-Path $env:RUNNER_TEMP 'compiled-samba/packages.tsv') --root (Join-Path $env:RUNNER_TEMP 'Samba') --expected (Join-Path $env:RUNNER_TEMP 'compiled-samba/runtime-package-candidates.json') --output (Join-Path $env:RUNNER_TEMP 'runtime-package-candidates.json')
           exit $LASTEXITCODE
+      - name: Test real SYSTEM account initialization and restricted NTFS identity
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          & research/cygwin-legacy/system-identity-probe.ps1 -Root (Join-Path $env:RUNNER_TEMP 'Samba') -Report (Join-Path $env:RUNNER_TEMP 'system-identity-probe.txt')
       - name: Save managed deployment evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -176,5 +250,6 @@ jobs:
           path: |
             ${{ runner.temp }}/managed-identity.txt
             ${{ runner.temp }}/runtime-package-candidates.json
+            ${{ runner.temp }}/system-identity-probe.txt
           if-no-files-found: warn
           retention-days: 1

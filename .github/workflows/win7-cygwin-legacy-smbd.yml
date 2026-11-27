@@ -10,18 +10,13 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/win7-cygwin-legacy-smbd.yml
       - .github/workflows/resolve-samba-stable.yml
       - .github/workflows/prepare-cygwin-dependencies.yml
       - research/cygwin-legacy/verify-cache.py
       - research/cygwin-legacy/repair-python.py
       - research/cygwin-legacy/package-smbd.py
       - research/cygwin-legacy/overlay-packages.py
-      - research/cygwin-legacy/prepare-release.py
       - research/cygwin-legacy/runtime-packages.py
-      - research/cygwin-legacy/sample-smb.conf
-      - research/cygwin-legacy/passwd.cmd
-      - research/cygwin-legacy/start.cmd
       - research/probe-smbd-fileshare.sh
       - .github/workflows/samba-fileshare-control.yml
       - research/cygwin-legacy/overlay.sh
@@ -183,7 +178,7 @@ jobs:
           Copy-Item research/cygwin-legacy/packages.tsv (Join-Path $package 'packages.tsv')
           python research/cygwin-legacy/runtime-packages.py --manifest (Join-Path $package 'manifest.json') --historical (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --lock (Join-Path $package 'packages.tsv') --root (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10') --output (Join-Path $package 'runtime-package-candidates.json')
           exit $LASTEXITCODE
-      - name: Retain compiled research inputs before account validation
+      - name: Retain compiled research inputs
         if: ${{ !cancelled() && steps.compiled.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -194,53 +189,6 @@ jobs:
             ${{ runner.temp }}/samba-win7-3.4.10-package/SHA256SUMS
             ${{ runner.temp }}/samba-win7-3.4.10-package/packages.tsv
             ${{ runner.temp }}/samba-win7-3.4.10-package/runtime-package-candidates.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Validate portable programs and prepare corresponding source
-        shell: pwsh
-        timeout-minutes: 15
-        run: |
-          $source = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence/build/upstream-samba'
-          $package = Join-Path $env:RUNNER_TEMP 'samba-win7-3.4.10-package'
-          $bin = Join-Path $package 'bin'
-          Copy-Item research/cygwin-legacy/sample-smb.conf (Join-Path $package 'smb.conf')
-          Copy-Item research/cygwin-legacy/passwd.cmd, research/cygwin-legacy/start.cmd $package
-          $probeRoot = Join-Path $env:RUNNER_TEMP 'samba-portable-account-probe'
-          New-Item -ItemType Directory $probeRoot | Out-Null
-          foreach ($name in @('private', 'state', 'cache', 'lock', 'run', 'rpc')) { New-Item -ItemType Directory (Join-Path $probeRoot $name) | Out-Null }
-          $probePath = $probeRoot.Replace('\', '/')
-          $env:SAMBA_PORTABLE_ROOT = '/cygdrive/' + $probePath.Substring(0,1).ToLowerInvariant() + $probePath.Substring(2)
-          $probeConfig = Join-Path $probeRoot 'smb.conf'
-          (Get-Content (Join-Path $package 'smb.conf') -Raw).Replace('@PORTABLE_ROOT@', $env:SAMBA_PORTABLE_ROOT) | Set-Content -LiteralPath $probeConfig -Encoding utf8NoBOM
-          $previous = $env:PATH
-          try {
-            $env:PATH = "$bin;$env:SystemRoot\System32;$env:SystemRoot"
-            foreach ($name in @('smbd.exe', 'testparm.exe', 'smbcontrol.exe')) {
-              & (Join-Path $bin $name) --version
-              if ($LASTEXITCODE -ne 0) { throw "Portable startup failed: $name" }
-            }
-            & (Join-Path $bin 'testparm.exe') -s $probeConfig
-            if ($LASTEXITCODE -ne 0) { throw 'Sample configuration rejected' }
-            $allowed = & (Join-Path $bin 'testparm.exe') -s $probeConfig localhost 127.0.0.1 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0 -or $allowed -notmatch 'Allow connection from localhost.*to data') { throw "Whitelist allow check failed: $allowed" }
-            $denied = & (Join-Path $bin 'testparm.exe') -s $probeConfig outside 192.0.2.1 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0 -or $denied -notmatch 'Deny connection from outside.*to data') { throw "Whitelist deny check failed: $denied" }
-            $v6 = & (Join-Path $bin 'testparm.exe') -s $probeConfig outside 2001:db8::123 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0 -or $v6 -notmatch 'Deny connection from outside.*to data') { throw "IPv6 deny check failed: $v6" }
-            # Use only a disposable test database, never the staged package or an OS password.
-            $secret = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
-            @($secret, $secret) | & (Join-Path $bin 'smbpasswd.exe') -L -s -a -c $probeConfig $env:USERNAME
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $probeRoot 'private/passdb.tdb') -PathType Leaf)) { throw "Local account-management probe failed; investigate Cygwin UID/SID and configured private dir" }
-            Remove-Variable secret
-            Write-Host "Local password database creation: PASS"
-          } finally { $env:PATH = $previous }
-          python research/cygwin-legacy/prepare-release.py --cache (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --providers (Join-Path $package 'runtime-package-candidates.json') --samba $source --project $env:GITHUB_WORKSPACE --package $package --output (Join-Path $env:RUNNER_TEMP 'samba-release')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload portable dependency research package and corresponding sources
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: samba-win7-portable-research
-          path: ${{ runner.temp }}/samba-release/
           if-no-files-found: error
           retention-days: 7
       - name: Collect executable and DLL diagnostics
@@ -292,5 +240,5 @@ jobs:
     permissions:
       contents: read
 
-  # The approved first pre-release now requires a Setup-managed offline package.
-  # The legacy flattened DLL package remains a research Artifact only.
+  # Compilation does not run Windows deployment or publication gates.
+  # Workflow-only edits use workflow_dispatch; source edits trigger builds.

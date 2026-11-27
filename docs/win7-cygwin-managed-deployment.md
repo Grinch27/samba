@@ -104,3 +104,9 @@ Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试�
 - Run 45646360802 的 DLL 逐字节匹配失败：cygcrypt-2.dll、cygpopt-0.dll、cygz.dll；日志确认安装 libcrypt2 4.4.20-1、libpopt0 1.19-1、zlib0 1.3.1-1 并执行 autorebase。历史 DLL 改以 Setup installed.db 的安装版本和 .lst.gz 的文件归属绑定已锁定归档；覆盖包不在 Setup 数据库中，按实际覆盖顺序和 DLL 字节匹配，冲突或缺失失败。对应源码按同一归属记录的精确归档路径和 SHA-512 索引键定位，不再对 rebased DLL 要求原始字节相等。
 - 编译输入 Artifact 改为七天，额外保存 packages.tsv 和原始运行库归属；固定依赖 Artifact 保持一天。独立部署研究在 legacy Run 完成后自动启动，也可手动指定 Run。若依赖已过期，复用 Ubuntu 下载工作流及编译 Run 的源码版本重新获取锁定依赖，再在 Windows 安装，无 Waf 编译；新旧归属不一致时停止。Setup 安装器仍动态获取，正式 Win7 安装器锁定未完成。
 - 以上改动不涉及 SYSTEM、账户、ACL 或发布；旧便携账户验证仍可能失败，编译输入在此前独立保存。运行库提供者并不等于最终 Setup 完整依赖闭包。
+
+### 2026-11-27：构建与部署分离、真实身份实验
+
+- Run 45965674410 四工具、16 DLL 归属、七天编译 Artifact 15184915527 及诊断通过；旧 portable 账号步骤失败。Run 45969833026 独立 Setup 与归属一致性通过。编译入口移除旧 portable 配置、账户初始化、对应源码 ZIP 组装；正式部署和发布仍必须独立通过账号、SMB、源码等门禁。仅工作流结构修改不自动重编译，源码变化仍自动触发；手动入口保留。
+- 部署入口新增独立 Ubuntu runtime-closure Job，使用固定历史索引及经过官方签名检查的现代索引，选定原始 16 包精确归档记录，遍历 Base/依赖/虚拟包并保留版本约束，输出候选 JSON；版本求解、实际最小安装、动态依赖、许可证、对应源码和 Win7 未验证。未改变固定依赖下载与 Artifact 保留期。
+- 用户明确批准仅一次性 GitHub-hosted Windows Runner 的 SYSTEM/SID/UID/临时账户/ACL 实验。新增一次性手动启动的本地任务，以原生 SYSTEM SID 核验真实权限；仅在隔离根映射真实 SYSTEM UID/GID 0，普通 smbshare 保持非特权，验证 smbpasswd、受限文件写入/重命名/删除与 passdb 拒绝访问。实验有界超时，finally 删除临时账号和任务，不注册服务、不监听网络、不修改 Samba 权限检查。此实验不等于正式 SMB 文件共享验收。原始编译产物继续复用，不自动发布。
