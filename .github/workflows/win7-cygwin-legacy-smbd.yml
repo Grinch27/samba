@@ -18,6 +18,7 @@ on:
       - research/cygwin-legacy/package-smbd.py
       - research/cygwin-legacy/overlay-packages.py
       - research/cygwin-legacy/prepare-release.py
+      - research/cygwin-legacy/runtime-packages.py
       - research/cygwin-legacy/sample-smb.conf
       - research/cygwin-legacy/passwd.cmd
       - research/cygwin-legacy/start.cmd
@@ -167,6 +168,7 @@ jobs:
           & $bash --noprofile --norc -c ($command -replace "`r`n", "`n")
           exit $LASTEXITCODE
       - name: Prepare complete four-program DLL package
+        id: compiled
         shell: pwsh
         run: |
           $source = Join-Path $env:RUNNER_TEMP 'smbd-legacy-evidence/build/upstream-samba'
@@ -174,7 +176,15 @@ jobs:
           $output = Join-Path $env:RUNNER_TEMP 'samba-win7-3.4.10-package'
           python research/cygwin-legacy/package-smbd.py --source-root $source --cygwin-root $cygwin --output $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Record original runtime package provenance
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'samba-win7-3.4.10-package'
+          Copy-Item research/cygwin-legacy/packages.tsv (Join-Path $package 'packages.tsv')
+          python research/cygwin-legacy/runtime-packages.py --manifest (Join-Path $package 'manifest.json') --historical (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --lock (Join-Path $package 'packages.tsv') --root (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10') --output (Join-Path $package 'runtime-package-candidates.json')
+          exit $LASTEXITCODE
       - name: Retain compiled research inputs before account validation
+        if: ${{ !cancelled() && steps.compiled.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: samba-win7-compiled-inputs
@@ -182,8 +192,10 @@ jobs:
             ${{ runner.temp }}/samba-win7-3.4.10-package/bin/
             ${{ runner.temp }}/samba-win7-3.4.10-package/manifest.json
             ${{ runner.temp }}/samba-win7-3.4.10-package/SHA256SUMS
+            ${{ runner.temp }}/samba-win7-3.4.10-package/packages.tsv
+            ${{ runner.temp }}/samba-win7-3.4.10-package/runtime-package-candidates.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
       - name: Validate portable programs and prepare corresponding source
         shell: pwsh
         timeout-minutes: 15
@@ -222,7 +234,7 @@ jobs:
             Remove-Variable secret
             Write-Host "Local password database creation: PASS"
           } finally { $env:PATH = $previous }
-          python research/cygwin-legacy/prepare-release.py --cache (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --overlay (Join-Path $env:RUNNER_TEMP 'cygwin-overlay') --packages research/cygwin-legacy/packages.tsv --samba $source --project $env:GITHUB_WORKSPACE --package $package --output (Join-Path $env:RUNNER_TEMP 'samba-release')
+          python research/cygwin-legacy/prepare-release.py --cache (Join-Path $env:RUNNER_TEMP 'cygwin-cache') --providers (Join-Path $package 'runtime-package-candidates.json') --samba $source --project $env:GITHUB_WORKSPACE --package $package --output (Join-Path $env:RUNNER_TEMP 'samba-release')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload portable dependency research package and corresponding sources
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -244,10 +256,13 @@ jobs:
               $file = Get-ChildItem -LiteralPath $bin -Filter $name -File -Recurse | Select-Object -First 1
               if ($file) {
                 Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $out $name)
-                & (Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/cygcheck.exe') $file.FullName 2>&1 | Out-File -Encoding utf8 (Join-Path $evidence "$name-dependencies.txt")
+                $cygcheck = Join-Path $env:RUNNER_TEMP 'cygwin-3.4.10/bin/cygcheck.exe'
+                & $cygcheck $file.FullName 2>&1 | Out-File -Encoding utf8 (Join-Path $evidence "$name-dependencies.txt")
+                if ($LASTEXITCODE -ne 0) { Write-Warning "cygcheck diagnostic failed for $name ($LASTEXITCODE)" }
               }
             }
           }
+          exit 0
       - name: Save build evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

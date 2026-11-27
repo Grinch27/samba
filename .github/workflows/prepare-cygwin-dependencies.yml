@@ -12,6 +12,9 @@ on:
       runner_image:
         type: string
         required: true
+      source_ref:
+        type: string
+        default: ''
       probe:
         type: boolean
         default: false
@@ -29,6 +32,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'

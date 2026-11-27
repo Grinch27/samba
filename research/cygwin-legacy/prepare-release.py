@@ -5,7 +5,7 @@
 # 潜在优化：成功冷构建后优化缓存。
 # 风险：必须校验历史索引、包和对应源码；不发布缺件产物。
 # 验证重点：三工具、DLL 来源、隔离启动和 ZIP 完整性。
-"""Collect byte-matched corresponding Cygwin sources and exact Samba build inputs."""
+"""Collect corresponding sources using fixed runtime package provenance."""
 
 import argparse
 import hashlib
@@ -15,7 +15,6 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
-import tarfile
 from urllib.request import urlopen
 import zipfile
 
@@ -23,7 +22,6 @@ HISTORICAL = "http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit
 MODERN = "https://mirrors.kernel.org/sourceware/cygwin/"
 INDEX_SHA256 = "4bbf34f9922a2360b6bec9a149efad59a5fda5d33de5a28990c7480286dbf46d"
 FIELD = re.compile(r"^(install|source):\s+(\S+)\s+(\d+)\s+([0-9a-fA-F]{128})\s*$")
-SUFFIXES = (".tar.xz", ".tar.zst", ".tar.gz", ".tar.bz2")
 
 def sha(path, algorithm="sha256"):
     with path.open("rb") as stream:
@@ -48,54 +46,29 @@ def records(data, base):
     return result
 
 def collect_archives(args, needed):
-    indexes = list(args.cache.rglob("setup.ini"))
-    if len(indexes) != 1:
-        raise ValueError("Expected exactly one verified historical index")
-    index = indexes[0]
+    index = args.cache / "historical/x86_64/setup.ini"
     data = index.read_bytes()
     if hashlib.sha256(data).hexdigest() != INDEX_SHA256:
         raise ValueError("Historical source index mismatch")
     historical = records(data, HISTORICAL)
+    provenance = json.loads(args.providers.read_text(encoding="utf-8"))
+    providers = provenance["dll_providers"]
+    if set(providers) != set(needed):
+        raise ValueError("Runtime package provenance does not cover the compiled DLL manifest")
     modern = {}
-    overlay = {}
-    for line in args.packages.read_text(encoding="utf-8").splitlines():
-        if line and not line.startswith("#"):
-            url, _, checksum = line.split("\t")
-            relative = url.split("/x86_64/", 1)[1]
-            overlay[url.rsplit("/", 1)[1]] = ("x86_64/" + relative, checksum)
-    if args.overlay.exists():
+    if any(record["origin"] == "overlay" for record in providers.values()):
         with urlopen(MODERN + "x86_64/setup.xz", timeout=90) as response:
             modern = records(lzma.decompress(response.read()), MODERN)
     matches = {}
-    archives = sorted(args.overlay.glob("*")) + sorted(args.cache.rglob("*"))
-    for archive in archives:
-        if not needed:
-            break
-        if not archive.is_file() or not archive.name.endswith(SUFFIXES):
-            continue
-        if archive.parent == args.overlay:
-            key = overlay[archive.name]
-            lookup = modern
-        else:
-            key = (archive.relative_to(index.parent.parent).as_posix(),
-                   sha(archive, "sha512"))
-            lookup = historical
-        with tarfile.open(archive, "r:*") as source:
-            for member in source:
-                name = PurePosixPath(member.name).name.lower()
-                if name not in needed or not member.isfile():
-                    continue
-                with source.extractfile(member) as stream:
-                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
-                if digest != needed[name]:
-                    continue
-                if key not in lookup:
-                    raise ValueError(f"Exact source metadata not available: {archive.name} / {name}")
-                matches[name] = (archive.name, lookup[key])
-                del needed[name]
-    if needed:
-        raise ValueError(f"No byte-matched source package for: {sorted(needed)}")
+    for name, record in providers.items():
+        relative = record["archive"]
+        lookup = modern if record["origin"] == "overlay" else historical
+        key = (relative, record["sha512"])
+        if key not in lookup:
+            raise ValueError(f"Exact source metadata not available: {relative} / {name}")
+        matches[name] = (PurePosixPath(relative).name, lookup[key])
     return matches
+
 
 def download_source(record, directory):
     base, relative, size, checksum = record
@@ -112,7 +85,7 @@ def download_source(record, directory):
 
 def main():
     p = argparse.ArgumentParser()
-    for name in ("cache", "overlay", "packages", "samba", "project", "package", "output"):
+    for name in ("cache", "providers", "samba", "project", "package", "output"):
         p.add_argument("--" + name, type=Path, required=True)
     args = p.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)

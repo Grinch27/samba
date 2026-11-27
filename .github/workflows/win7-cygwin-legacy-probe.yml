@@ -12,7 +12,10 @@ on:
     paths:
       - .github/workflows/win7-cygwin-legacy-probe.yml
       - .github/workflows/prepare-cygwin-dependencies.yml
-      - research/cygwin-legacy/**
+      - research/cygwin-legacy/build.sh
+      - research/cygwin-legacy/packages.tsv
+      - research/cygwin-legacy/overlay-packages.py
+      - research/cygwin-legacy/*.c
   workflow_dispatch:
 
 permissions:

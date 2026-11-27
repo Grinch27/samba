@@ -98,3 +98,9 @@ Run 45524518315 的 SMB2_10/SMB3_11 共 18 个 PASS 日志项（含复合测试�
 - 已在独立 Setup 研究根中通过四工具装载、Cygwin 3.4.10 身份取证及 deployment/smb.conf 的 testparm；明确 state/private/cache/lock/pid/ncalrpc 目录，保留 root 到 smbshare 映射及回环默认策略。
 - 当前真实 runneradmin UID 197108、SYSTEM UID 18，UID 0 尚无对应记录。账户初始化及真实 SMB 文件操作仍未通过，不执行未批准的系统身份或 ACL 修改。
 - 新增 runtime-packages.py，直接读取已保存的 DLL manifest 和同批已验证归档，仅对目标 DLL 匹配 SHA-256，输出运行时提供者及固定归档记录。输出 runtime-package-candidates.json 为 PE 递归导入的提供者集合，不代表完整 Setup 依赖闭包或 Win7 兼容。继续根据实际包元数据解析 Base/depends、动态加载和源码对应关系，不复制整个编译环境作为最终运行包。
+
+### 2026-11-27：Setup 原生归属与跨日部署研究
+
+- Run 45646360802 的 DLL 逐字节匹配失败：cygcrypt-2.dll、cygpopt-0.dll、cygz.dll；日志确认安装 libcrypt2 4.4.20-1、libpopt0 1.19-1、zlib0 1.3.1-1 并执行 autorebase。历史 DLL 改以 Setup installed.db 的安装版本和 .lst.gz 的文件归属绑定已锁定归档；覆盖包不在 Setup 数据库中，按实际覆盖顺序和 DLL 字节匹配，冲突或缺失失败。对应源码按同一归属记录的精确归档路径和 SHA-512 索引键定位，不再对 rebased DLL 要求原始字节相等。
+- 编译输入 Artifact 改为七天，额外保存 packages.tsv 和原始运行库归属；固定依赖 Artifact 保持一天。独立部署研究在 legacy Run 完成后自动启动，也可手动指定 Run。若依赖已过期，复用 Ubuntu 下载工作流及编译 Run 的源码版本重新获取锁定依赖，再在 Windows 安装，无 Waf 编译；新旧归属不一致时停止。Setup 安装器仍动态获取，正式 Win7 安装器锁定未完成。
+- 以上改动不涉及 SYSTEM、账户、ACL 或发布；旧便携账户验证仍可能失败，编译输入在此前独立保存。运行库提供者并不等于最终 Setup 完整依赖闭包。
